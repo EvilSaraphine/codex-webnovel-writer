@@ -195,3 +195,33 @@ python3 scripts/webnovel.py index ../sample-novel-project
 python3 scripts/webnovel.py chapter-summary ../sample-novel-project 1
 python3 scripts/webnovel.py continuity-check ../sample-novel-project
 ```
+
+## 项目体检工作流
+
+推荐在写作或结构更新后运行 doctor 做只读体检：
+
+1. 写作或更新结构后运行 `index`：
+
+```bash
+python3 scripts/webnovel.py index ../sample-novel-project
+```
+
+2. 运行 `build-index` 更新本地检索索引：
+
+```bash
+python3 scripts/webnovel.py build-index ../sample-novel-project
+```
+
+3. 运行 `doctor`：
+
+```bash
+python3 scripts/webnovel.py doctor ../sample-novel-project
+```
+
+4. 根据 `审查报告/doctor-report.md` 修复问题。doctor 只给诊断和建议，不会自动修复。
+
+5. 再次运行 deep 体检：
+
+```bash
+python3 scripts/webnovel.py doctor ../sample-novel-project --deep
+```
