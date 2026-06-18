@@ -14,6 +14,8 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_DIR = PLUGIN_ROOT / "templates"
 NOVEL_DIRS = ["设定集", "大纲", "正文", "审查报告", "伏笔记录", "人物状态", "章节索引"]
+RETRIEVAL_DIR = ".webnovel"
+RETRIEVAL_CONFIG = "retrieval-config.json"
 SKILLS = [
     "webnovel-init",
     "webnovel-plan",
@@ -23,6 +25,7 @@ SKILLS = [
     "webnovel-learn",
     "webnovel-chapter",
     "webnovel-plan-structured",
+    "webnovel-retrieve",
 ]
 PLANNING_JSON_FILES = [
     "大纲/volumes.json",
@@ -42,12 +45,16 @@ TEMPLATE_FILES = [
     "章节索引/chapters.json",
     "章节索引/summary-template.md",
     "章节索引/summaries/.gitkeep",
+    "章节索引/context-packs/.gitkeep",
     "伏笔记录/hooks.json",
     "人物状态/characters.json",
     "审查报告/review-template.md",
     "审查报告/continuity-report-template.md",
+    ".webnovel/.gitkeep",
+    ".webnovel/retrieval-config.json",
 ]
 SEARCH_DIRS = ["设定集", "大纲", "正文", "伏笔记录", "人物状态", "章节索引"]
+SUPPORTED_RETRIEVAL_SUFFIXES = {".md", ".txt", ".json"}
 
 
 def main() -> int:
@@ -131,6 +138,20 @@ def main() -> int:
     outline_export_parser = subparsers.add_parser("outline-export", help="export structured planning to Markdown")
     outline_export_parser.add_argument("path", type=Path, help="novel project path")
 
+    build_index_parser = subparsers.add_parser("build-index", help="build local retrieval index")
+    build_index_parser.add_argument("path", type=Path, help="novel project path")
+
+    retrieve_parser = subparsers.add_parser("retrieve", help="retrieve relevant local snippets")
+    retrieve_parser.add_argument("path", type=Path, help="novel project path")
+    retrieve_parser.add_argument("query", nargs="+", help="query text")
+
+    context_pack_parser = subparsers.add_parser("context-pack", help="generate a chapter context pack")
+    context_pack_parser.add_argument("path", type=Path, help="novel project path")
+    context_pack_parser.add_argument("chapter_number", help="chapter number")
+
+    retrieval_status_parser = subparsers.add_parser("retrieval-status", help="show local retrieval index status")
+    retrieval_status_parser.add_argument("path", type=Path, help="novel project path")
+
     args = parser.parse_args()
     if args.command == "init":
         return cmd_init(args.path, args.force)
@@ -172,6 +193,14 @@ def main() -> int:
         return cmd_planning_status(args.path)
     if args.command == "outline-export":
         return cmd_outline_export(args.path)
+    if args.command == "build-index":
+        return cmd_build_index(args.path)
+    if args.command == "retrieve":
+        return cmd_retrieve(args.path, " ".join(args.query))
+    if args.command == "context-pack":
+        return cmd_context_pack(args.path, args.chapter_number)
+    if args.command == "retrieval-status":
+        return cmd_retrieval_status(args.path)
     parser.error("unknown command")
     return 2
 
@@ -830,6 +859,155 @@ def cmd_outline_export(path: Path) -> int:
     return 0
 
 
+def cmd_build_index(path: Path) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+
+    config = ensure_retrieval_config(target)
+    if config is None:
+        return 1
+
+    chunks = []
+    source_files = []
+    now = datetime.now(timezone.utc).isoformat()
+    for file_path in iter_retrieval_files(target, config):
+        text = read_text(file_path)
+        source_files.append(relative_path(target, file_path))
+        for index, chunk_text in enumerate(split_text(text, config["chunk_size"], config["chunk_overlap"]), start=1):
+            stat = file_path.stat()
+            chunk_id = f"{len(chunks) + 1:06d}"
+            chunks.append(
+                {
+                    "chunk_id": chunk_id,
+                    "path": relative_path(target, file_path),
+                    "title": extract_title(text, file_path),
+                    "text": chunk_text,
+                    "char_count": len(chunk_text),
+                    "updated_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+                    "chunk_index": index,
+                }
+            )
+
+    webnovel_dir = target / RETRIEVAL_DIR
+    chunks_path = webnovel_dir / "chunks.json"
+    index_path = webnovel_dir / "retrieval-index.json"
+    write_json(chunks_path, chunks)
+    write_json(
+        index_path,
+        {
+            "version": config["version"],
+            "provider": config["provider"],
+            "built_at": now,
+            "chunk_count": len(chunks),
+            "source_files": source_files,
+        },
+    )
+    print(f"Built local retrieval index: {index_path}")
+    print(f"- chunks: {len(chunks)}")
+    print(f"- source_files: {len(source_files)}")
+    return 0
+
+
+def cmd_retrieve(path: Path, query: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    if not query.strip():
+        print("Error: query must not be empty")
+        return 1
+
+    config = ensure_retrieval_config(target)
+    if config is None:
+        return 1
+    chunks = load_chunks(target)
+    if chunks is None:
+        return 1
+
+    results = search_chunks(chunks, query, config["max_results"])
+    if not results:
+        print(f"No retrieval results for: {query}")
+        print("Tip: run build-index after adding settings, outlines, chapter summaries, character state, or hook records.")
+        return 0
+
+    for rank, result in enumerate(results, start=1):
+        chunk = result["chunk"]
+        print(f"{rank}. score={result['score']:.2f} path={chunk.get('path')} chunk_id={chunk.get('chunk_id')}")
+        print(f"   {make_retrieval_snippet(str(chunk.get('text', '')), query)}")
+    return 0
+
+
+def cmd_context_pack(path: Path, chapter_number: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    number = parse_positive_int(chapter_number, "chapter_number")
+    if number is None:
+        return 1
+
+    config = ensure_retrieval_config(target)
+    if config is None:
+        return 1
+    chunks = load_chunks(target)
+    if chunks is None:
+        return 1
+
+    plan = find_chapter_plan(target, number)
+    if plan is None:
+        query = f"第{number:03d}章"
+        results = []
+        message = "No matching chapter_plan found. Generated an empty context pack template."
+    else:
+        query = build_chapter_plan_query(plan)
+        results = search_chunks(chunks, query, config["max_results"]) if query else []
+        message = f"Generated context pack for chapter {number:03d}."
+
+    output_path = context_pack_path(target, number)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(build_context_pack(number, plan, query, results), encoding="utf-8")
+    print(message)
+    if plan is None:
+        print("Tip: run add-chapter-plan first, then fill goal, characters, hooks, conflict, and notes.")
+    print(f"Context pack written: {output_path}")
+    return 0
+
+
+def cmd_retrieval_status(path: Path) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+
+    config_path = retrieval_config_path(target)
+    chunks_path = target / RETRIEVAL_DIR / "chunks.json"
+    index_path = target / RETRIEVAL_DIR / "retrieval-index.json"
+    print("Retrieval status:")
+    print(f"- config: {'exists' if config_path.is_file() else 'missing'} ({relative_path(target, config_path)})")
+    print(f"- chunks: {'exists' if chunks_path.is_file() else 'missing'} ({relative_path(target, chunks_path)})")
+    print(f"- index: {'exists' if index_path.is_file() else 'missing'} ({relative_path(target, index_path)})")
+
+    if not index_path.is_file():
+        print("Tip: run build-index to create the local retrieval index.")
+        return 0
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid retrieval index JSON: {exc}")
+        return 1
+    source_files = index.get("source_files", [])
+    print(f"- chunk_count: {index.get('chunk_count', 0)}")
+    print(f"- source_files: {len(source_files) if isinstance(source_files, list) else 0}")
+    print(f"- built_at: {index.get('built_at', '-')}")
+    return 0
+
+
 def cmd_check(path: Path) -> int:
     target = path.expanduser().resolve()
     errors: list[str] = []
@@ -864,10 +1042,18 @@ def check_plugin(root: Path, errors: list[str]) -> None:
     for dirname in NOVEL_DIRS:
         if not (root / "templates" / dirname).is_dir():
             errors.append(f"missing template directory: templates/{dirname}")
+    if not (root / "templates" / RETRIEVAL_DIR).is_dir():
+        errors.append(f"missing template directory: templates/{RETRIEVAL_DIR}")
     for relative in TEMPLATE_FILES:
         if not (root / "templates" / relative).is_file():
             errors.append(f"missing template file: templates/{relative}")
-    for relative in ["章节索引/chapters.json", "伏笔记录/hooks.json", "人物状态/characters.json", *PLANNING_JSON_FILES]:
+    for relative in [
+        "章节索引/chapters.json",
+        "伏笔记录/hooks.json",
+        "人物状态/characters.json",
+        ".webnovel/retrieval-config.json",
+        *PLANNING_JSON_FILES,
+    ]:
         path = root / "templates" / relative
         if path.is_file():
             validate_json_file(path, errors)
@@ -1099,6 +1285,319 @@ def append_records(lines: list[str], records: list, formatter) -> None:
                 lines.append(formatter(item))
             except (TypeError, ValueError):
                 lines.append(f"- {item}")
+
+
+def retrieval_config_path(root: Path) -> Path:
+    return root / RETRIEVAL_DIR / RETRIEVAL_CONFIG
+
+
+def ensure_retrieval_config(root: Path) -> dict | None:
+    config_path = retrieval_config_path(root)
+    if not config_path.exists():
+        source = TEMPLATE_DIR / RETRIEVAL_DIR / RETRIEVAL_CONFIG
+        if not source.is_file():
+            print(f"Error: missing default retrieval config template: {source}")
+            return None
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, config_path)
+        print(f"Created default retrieval config: {config_path}")
+    return load_retrieval_config(config_path)
+
+
+def load_retrieval_config(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid retrieval config JSON in {path}: {exc}")
+        return None
+    if not isinstance(data, dict):
+        print(f"Error: retrieval config must contain an object: {path}")
+        return None
+
+    try:
+        config = {
+            "version": str(data.get("version") or "0.5"),
+            "provider": str(data.get("provider") or "local"),
+            "chunk_size": int(data.get("chunk_size") or 800),
+            "chunk_overlap": int(data.get("chunk_overlap") or 120),
+            "max_results": int(data.get("max_results") or 8),
+            "include_dirs": data.get("include_dirs") if isinstance(data.get("include_dirs"), list) else [],
+            "exclude_patterns": data.get("exclude_patterns") if isinstance(data.get("exclude_patterns"), list) else [],
+        }
+    except (TypeError, ValueError):
+        print("Error: chunk_size, chunk_overlap, and max_results must be numbers")
+        return None
+    if config["provider"] != "local":
+        print("Error: v0.5 only supports provider=local")
+        return None
+    if config["chunk_size"] <= 0:
+        print("Error: chunk_size must be greater than 0")
+        return None
+    if config["chunk_overlap"] < 0 or config["chunk_overlap"] >= config["chunk_size"]:
+        print("Error: chunk_overlap must be greater than or equal to 0 and smaller than chunk_size")
+        return None
+    if config["max_results"] <= 0:
+        print("Error: max_results must be greater than 0")
+        return None
+    return config
+
+
+def iter_retrieval_files(root: Path, config: dict) -> list[Path]:
+    files = []
+    exclude_patterns = [str(item) for item in config.get("exclude_patterns", [])]
+    for dirname in config.get("include_dirs", []):
+        base = root / str(dirname)
+        if not base.is_dir():
+            continue
+        for file_path in sorted(base.glob("**/*")):
+            if not file_path.is_file() or file_path.name.startswith("."):
+                continue
+            relative = relative_path(root, file_path)
+            if file_path.suffix.lower() not in SUPPORTED_RETRIEVAL_SUFFIXES:
+                continue
+            if any(pattern and pattern in relative for pattern in exclude_patterns):
+                continue
+            files.append(file_path)
+    return files
+
+
+def split_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
+    if not text:
+        return []
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = min(len(text), start + chunk_size)
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= len(text):
+            break
+        start = max(end - chunk_overlap, start + 1)
+    return chunks
+
+
+def load_chunks(root: Path) -> list | None:
+    chunks_path = root / RETRIEVAL_DIR / "chunks.json"
+    index_path = root / RETRIEVAL_DIR / "retrieval-index.json"
+    if not chunks_path.is_file() or not index_path.is_file():
+        print("Error: local retrieval index is missing. Run build-index first.")
+        return None
+    try:
+        chunks = json.loads(chunks_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid chunks JSON: {exc}")
+        return None
+    if not isinstance(chunks, list):
+        print(f"Error: chunks JSON must contain an array: {chunks_path}")
+        return None
+    return chunks
+
+
+def search_chunks(chunks: list, query: str, max_results: int) -> list[dict]:
+    query_norm = normalize_text(query)
+    tokens = tokenize_query(query)
+    results = []
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        text = str(chunk.get("text", ""))
+        title = str(chunk.get("title", ""))
+        path = str(chunk.get("path", ""))
+        haystack = normalize_text(text)
+        title_norm = normalize_text(title)
+        path_norm = normalize_text(path)
+        score = 0.0
+        if query_norm and query_norm in haystack:
+            score += 10.0
+        if query_norm and query_norm in title_norm:
+            score += 8.0
+        if query_norm and query_norm in path_norm:
+            score += 4.0
+        for token in tokens:
+            if token in haystack:
+                score += 2.0
+            if token in title_norm:
+                score += 2.0
+            if token in path_norm:
+                score += 1.0
+        score += recent_bonus(chunk.get("updated_at"))
+        if score > 0:
+            results.append({"score": score, "chunk": chunk})
+    results.sort(key=lambda item: (-item["score"], str(item["chunk"].get("path", "")), str(item["chunk"].get("chunk_id", ""))))
+    return results[:max_results]
+
+
+def normalize_text(value: str) -> str:
+    return "".join(value.lower().split())
+
+
+def tokenize_query(query: str) -> list[str]:
+    raw_tokens = re.findall(r"[\u4e00-\u9fff]+|[A-Za-z0-9_]+", query.lower())
+    tokens = set()
+    for token in raw_tokens:
+        token = token.strip()
+        if not token:
+            continue
+        tokens.add(token)
+        if re.fullmatch(r"[\u4e00-\u9fff]+", token) and len(token) > 2:
+            for index in range(0, len(token) - 1):
+                tokens.add(token[index : index + 2])
+    return sorted(tokens, key=lambda item: (-len(item), item))
+
+
+def recent_bonus(value) -> float:
+    if not value:
+        return 0.0
+    try:
+        updated = datetime.fromisoformat(str(value))
+    except ValueError:
+        return 0.0
+    age_days = max((datetime.now(timezone.utc) - updated).total_seconds() / 86400, 0)
+    return max(0.0, 1.0 - min(age_days, 365) / 365) * 0.5
+
+
+def make_retrieval_snippet(text: str, query: str, width: int = 160) -> str:
+    clean = " ".join(text.strip().split())
+    if len(clean) <= width:
+        return clean
+    query_norm = normalize_text(query)
+    clean_norm = normalize_text(clean)
+    index = clean_norm.find(query_norm) if query_norm else -1
+    if index < 0:
+        for token in tokenize_query(query):
+            index = clean_norm.find(token)
+            if index >= 0:
+                break
+    if index < 0:
+        index = 0
+    start = max(0, index - width // 2)
+    end = min(len(clean), start + width)
+    prefix = "..." if start > 0 else ""
+    suffix = "..." if end < len(clean) else ""
+    return f"{prefix}{clean[start:end]}{suffix}"
+
+
+def find_chapter_plan(root: Path, chapter_number: int) -> dict | None:
+    path = root / "大纲" / "chapter_plans.json"
+    if not path.is_file():
+        return None
+    records = load_json_array(path)
+    if records is None:
+        return None
+    for item in records:
+        if isinstance(item, dict) and item.get("chapter_number") == chapter_number:
+            return item
+    return None
+
+
+def build_chapter_plan_query(plan: dict) -> str:
+    fields = [
+        "title",
+        "goal",
+        "pov",
+        "conflict",
+        "ending_hook",
+        "notes",
+        "characters",
+        "hooks_to_introduce",
+        "hooks_to_advance",
+        "hooks_to_resolve",
+        "scenes",
+    ]
+    parts = []
+    for field in fields:
+        value = plan.get(field)
+        if isinstance(value, list):
+            parts.extend(str(item) for item in value if item)
+        elif value:
+            parts.append(str(value))
+    return " ".join(parts).strip()
+
+
+def context_pack_path(root: Path, chapter_number: int) -> Path:
+    return root / "章节索引" / "context-packs" / f"第{chapter_number:03d}章-context.md"
+
+
+def build_context_pack(chapter_number: int, plan: dict | None, query: str, results: list[dict]) -> str:
+    lines = [
+        f"# 第{chapter_number:03d}章写作上下文包",
+        "",
+        f"- 生成时间：{datetime.now(timezone.utc).isoformat()}",
+        f"- 章节号：{chapter_number}",
+        "",
+        "## 章纲摘要",
+        "",
+    ]
+    if plan is None:
+        lines.append("- 未找到对应 `大纲/chapter_plans.json` 章纲。请先补充章纲。")
+    else:
+        lines.extend(format_chapter_plan_summary(plan))
+    lines.extend(["", "## 检索 Query", "", query or "-"])
+    setting_results = []
+    state_results = []
+    for result in results:
+        path = str(result["chunk"].get("path", ""))
+        if path.startswith(("伏笔记录/", "人物状态/", "章节索引/")) or path.startswith("大纲/timeline"):
+            state_results.append(result)
+        else:
+            setting_results.append(result)
+    lines.extend(["", "## 相关设定片段", ""])
+    append_context_results(lines, setting_results, query)
+    lines.extend(["", "## 相关人物/伏笔/时间线片段", ""])
+    append_context_results(lines, state_results, query)
+    lines.extend(
+        [
+            "",
+            "## 写作前提醒",
+            "",
+            "- 检索片段只作为参考，不能替代用户确认过的设定和章纲。",
+            "- 不要把检索片段当成新设定自动写回项目文件。",
+            "- 如果关键设定、人物状态、伏笔或时间线信息缺失，先提示用户补充。",
+            "- 写完后运行 `index`、`chapter-summary` 和 `continuity-check`。",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def format_chapter_plan_summary(plan: dict) -> list[str]:
+    return [
+        f"- 标题：{plan.get('title') or '-'}",
+        f"- 目标：{plan.get('goal') or '-'}",
+        f"- 角色：{format_inline_list(plan.get('characters'))}",
+        f"- 冲突：{plan.get('conflict') or '-'}",
+        f"- 伏笔引入：{format_inline_list(plan.get('hooks_to_introduce'))}",
+        f"- 伏笔推进：{format_inline_list(plan.get('hooks_to_advance'))}",
+        f"- 伏笔回收：{format_inline_list(plan.get('hooks_to_resolve'))}",
+        f"- 结尾钩子：{plan.get('ending_hook') or '-'}",
+        f"- 备注：{plan.get('notes') or '-'}",
+    ]
+
+
+def format_inline_list(value) -> str:
+    if isinstance(value, list):
+        return "、".join(str(item) for item in value if item) or "-"
+    return str(value) if value else "-"
+
+
+def append_context_results(lines: list[str], results: list[dict], query: str) -> None:
+    if not results:
+        lines.append("- 暂无检索结果。")
+        return
+    for rank, result in enumerate(results, start=1):
+        chunk = result["chunk"]
+        lines.extend(
+            [
+                f"### {rank}. {chunk.get('path')} / {chunk.get('chunk_id')}",
+                "",
+                f"- score: {result['score']:.2f}",
+                f"- title: {chunk.get('title') or '-'}",
+                "",
+                "> " + make_retrieval_snippet(str(chunk.get("text", "")), query, 220),
+                "",
+            ]
+        )
 
 
 def parse_chapter_number(path: Path) -> int | None:

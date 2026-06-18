@@ -161,3 +161,37 @@ python3 scripts/webnovel.py planning-status ../sample-novel-project
 ```bash
 python3 scripts/webnovel.py outline-export ../sample-novel-project
 ```
+
+## 本地检索工作流
+
+1. 使用 `build-index` 建立本地索引：
+
+```bash
+python3 scripts/webnovel.py build-index ../sample-novel-project
+```
+
+2. 使用 `retrieve` 查询相关片段：
+
+```bash
+python3 scripts/webnovel.py retrieve ../sample-novel-project 示例伏笔
+```
+
+3. 使用 `context-pack` 为章节写作生成上下文包：
+
+```bash
+python3 scripts/webnovel.py context-pack ../sample-novel-project 1
+```
+
+4. 让 Codex 根据 `context-pack` 和 `webnovel-retrieve` Skill 辅助写作：
+
+```text
+Use webnovel-retrieve and 章节索引/context-packs/第001章-context.md to prepare chapter 1.
+```
+
+5. 写完后运行 `index`、`chapter-summary` 和 `continuity-check`：
+
+```bash
+python3 scripts/webnovel.py index ../sample-novel-project
+python3 scripts/webnovel.py chapter-summary ../sample-novel-project 1
+python3 scripts/webnovel.py continuity-check ../sample-novel-project
+```

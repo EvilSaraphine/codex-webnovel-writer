@@ -25,7 +25,7 @@ python3 scripts/webnovel.py init ../my-novel-project
 ## 功能特性
 
 - 提供 `.codex-plugin/plugin.json`，可作为本地 Codex 插件源使用。
-- 提供 8 个面向小说工作流的 Codex Skills：
+- 提供 9 个面向小说工作流的 Codex Skills：
   - `webnovel-init`：初始化小说项目目录和基础文件。
   - `webnovel-plan`：生成或修订总纲、卷纲、章节大纲和时间线。
   - `webnovel-write`：根据大纲、设定、人物状态和伏笔记录起草章节。
@@ -34,6 +34,7 @@ python3 scripts/webnovel.py init ../my-novel-project
   - `webnovel-learn`：记录用户偏好、写作禁区、人物修正和长期项目记忆。
   - `webnovel-chapter`：围绕单章进行写作准备、摘要、状态更新建议和连续性检查。
   - `webnovel-plan-structured`：维护卷纲、章纲、时间线、人物线、场景卡和冲突线。
+  - `webnovel-retrieve`：使用本地检索结果和章节上下文包辅助写作、查询和审查。
 - 提供 `scripts/webnovel.py`，支持初始化项目、查看路径、结构检查、结构化规划、章节模板、章节摘要、章节索引、关键词查询、人物记录、伏笔记录、状态概览、连续性检查和审查报告模板生成。
 - 提供中文小说项目模板，使用稳定 Markdown 文件保存长期记忆。
 - 强调上下文经济：按任务读取必要文件，而不是每次加载整个小说项目。
@@ -74,6 +75,22 @@ v0.4 增加了结构化规划系统：
 - `大纲/planning-guide.md`：规划文件使用说明。
 - `outline-export`：把结构化 JSON 导出为人工可读的 `大纲/outline-export.md`。
 
+## v0.5 新增能力
+
+v0.5 增加了 Local Retrieval / Light RAG。第一版默认本地运行，不联网，不需要 API，不使用 embedding provider，也不下载模型。
+
+- `webnovel-retrieve` Skill：指导 Codex 使用检索结果和 context pack 辅助写作、查询和审查。
+- `.webnovel/retrieval-config.json`：本地检索配置。
+- `.webnovel/chunks.json`：由 `build-index` 生成的文本切块。
+- `.webnovel/retrieval-index.json`：由 `build-index` 生成的索引元数据。
+- `章节索引/context-packs/`：保存章节写作前的上下文包。
+- `build-index`：扫描设定、大纲、正文、人物状态、伏笔记录、章节摘要、审查报告和结构化规划文件，建立本地索引。
+- `retrieve`：用关键词和简单打分召回相关片段。
+- `context-pack`：根据 `大纲/chapter_plans.json` 为某章生成写作上下文包。
+- `retrieval-status`：查看本地检索配置和索引状态。
+
+这不是完整语义 RAG，而是轻量本地检索。它适合写作前上下文召回、设定查询、连续性检查辅助。未来可以选择性支持 embedding provider，但不会作为默认依赖。
+
 ## 通用项目原则
 
 本仓库是通用开源工具，不是某一本小说的项目仓库。仓库中不应提交用户私人小说内容、真实作品设定、真实角色名、剧情片段、未公开文本或特定 IP 内容。
@@ -98,7 +115,8 @@ codex-webnovel-writer/
 │   ├── webnovel-query/
 │   ├── webnovel-learn/
 │   ├── webnovel-chapter/
-│   └── webnovel-plan-structured/
+│   ├── webnovel-plan-structured/
+│   └── webnovel-retrieve/
 ├── scripts/webnovel.py
 ├── templates/
 ├── docs/
@@ -117,7 +135,8 @@ my-story/
 ├── 审查报告/
 ├── 伏笔记录/
 ├── 人物状态/
-└── 章节索引/
+├── 章节索引/
+└── .webnovel/
 ```
 
 主要目录用途：
@@ -129,6 +148,7 @@ my-story/
 - `伏笔记录/`：伏笔设置位置、预期回收、当前状态。
 - `人物状态/`：人物目标、关系、资源、秘密、伤势和知识状态。
 - `章节索引/`：章节进度、大纲、正文、审查和发布准备状态。
+- `.webnovel/`：本地检索配置、切块和索引元数据。
 
 ## 安装与使用
 
@@ -164,6 +184,7 @@ Use webnovel-plan to create a 20-chapter outline for volume 1.
 Use webnovel-write to draft chapter 1 from 大纲/第001章.md.
 Use webnovel-review to review 正文/第001章.md and save a report.
 Use webnovel-query to list unpaid foreshadowing before chapter 10.
+Use webnovel-retrieve to prepare a context pack for chapter 1.
 ```
 
 ## Skills 说明
@@ -199,6 +220,10 @@ Use webnovel-query to list unpaid foreshadowing before chapter 10.
 ### webnovel-plan-structured
 
 用于生成和维护结构化长篇规划，包括卷纲、章纲、时间线、人物线、场景卡和冲突线。JSON 用于机器可读结构，Markdown 用于人工阅读说明；规划层不直接保存正文内容。
+
+### webnovel-retrieve
+
+用于在写作、查询和审查前使用本地索引召回相关片段。检索结果只能作为参考，不会替代用户确认过的设定、章纲、人物状态或伏笔记录，也不应被自动写回为新设定。
 
 ## CLI 使用
 
@@ -316,10 +341,18 @@ python3 scripts/webnovel.py planning-status ../sample-novel-project
 python3 scripts/webnovel.py outline-export ../sample-novel-project
 ```
 
+v0.5 Local Retrieval / Light RAG 示例：
+
+```bash
+python3 scripts/webnovel.py build-index ../sample-novel-project
+python3 scripts/webnovel.py retrieve ../sample-novel-project 示例伏笔
+python3 scripts/webnovel.py context-pack ../sample-novel-project 1
+python3 scripts/webnovel.py retrieval-status ../sample-novel-project
+```
+
 ## 后续路线
 
-- Local Retrieval / Light RAG：第一版检索能力默认在本地运行，使用项目 Markdown 与 JSON 文件做轻量搜索，不联网、不需要 API，也不把 embedding provider 作为默认依赖。
-- 未来可以选择性支持 embedding provider，用于更好的本地语义检索；这应保持为可选能力，不影响基础 CLI 和 Skills 工作流。
+- 未来可以选择性支持 embedding provider，用于更好的语义检索；这应保持为可选能力，不影响基础 CLI 和 Skills 工作流。
 - 继续完善章节摘要、人物状态和伏笔状态之间的同步检查。
 
 ## 与 Claude Code 版本的区别

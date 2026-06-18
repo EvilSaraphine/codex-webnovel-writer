@@ -1,0 +1,21 @@
+{
+  "version": "0.5",
+  "provider": "local",
+  "chunk_size": 800,
+  "chunk_overlap": 120,
+  "max_results": 8,
+  "include_dirs": [
+    "设定集",
+    "大纲",
+    "正文",
+    "伏笔记录",
+    "人物状态",
+    "章节索引",
+    "审查报告"
+  ],
+  "exclude_patterns": [
+    ".git",
+    "pycache",
+    ".DS_Store"
+  ]
+}
