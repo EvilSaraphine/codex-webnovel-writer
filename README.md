@@ -17,15 +17,27 @@
 ## 功能特性
 
 - 提供 `.codex-plugin/plugin.json`，可作为本地 Codex 插件源使用。
-- 提供 5 个面向小说工作流的 Codex Skills：
+- 提供 6 个面向小说工作流的 Codex Skills：
   - `webnovel-init`：初始化小说项目目录和基础文件。
   - `webnovel-plan`：生成或修订总纲、卷纲、章节大纲和时间线。
   - `webnovel-write`：根据大纲、设定、人物状态和伏笔记录起草章节。
   - `webnovel-review`：审查连续性、人物状态、节奏、伏笔和 AI 味。
   - `webnovel-query`：从项目文件中查询设定、人物、伏笔、章节进度和时间线。
-- 提供 `scripts/webnovel.py`，支持初始化项目、查看路径和结构检查。
+  - `webnovel-learn`：记录用户偏好、写作禁区、人物修正和长期项目记忆。
+- 提供 `scripts/webnovel.py`，支持初始化项目、查看路径、结构检查、章节索引、关键词查询、人物记录、伏笔记录和审查报告模板生成。
 - 提供中文小说项目模板，使用稳定 Markdown 文件保存长期记忆。
 - 强调上下文经济：按任务读取必要文件，而不是每次加载整个小说项目。
+
+## v0.2 新增能力
+
+v0.2 增加了基础项目记忆与索引能力：
+
+- `章节索引/chapters.json`：由 CLI 扫描 `正文/` 后生成，记录章节号、标题、路径、字数和更新时间。
+- `人物状态/characters.json`：保存结构化人物条目，便于后续查询和维护。
+- `伏笔记录/hooks.json`：保存结构化伏笔条目，记录状态、引入位置、关联人物和备注。
+- `审查报告/review-template.md`：用于生成单章审查报告。
+- `设定集/写作偏好.md` 和 `设定集/风格禁区.md`：用于沉淀长期写作偏好和禁区。
+- `webnovel-learn` Skill：用于把用户反馈整理为可复用的项目长期记忆。
 
 ## 项目结构
 
@@ -40,7 +52,8 @@ codex-webnovel-writer/
 │   ├── webnovel-plan/
 │   ├── webnovel-write/
 │   ├── webnovel-review/
-│   └── webnovel-query/
+│   ├── webnovel-query/
+│   └── webnovel-learn/
 ├── scripts/webnovel.py
 ├── templates/
 ├── docs/
@@ -130,6 +143,10 @@ Use webnovel-query to list unpaid foreshadowing before chapter 10.
 
 用于从项目文件中回答问题，例如人物当前状态、设定规则、未回收伏笔、章节进度、时间线和连续性冲突。回答时应尽量列出使用到的来源文件。
 
+### webnovel-learn
+
+用于记录用户偏好、写作禁区、人物设定修正、风格经验和项目长期记忆。它会把经验沉淀到 `设定集/写作偏好.md`、`设定集/风格禁区.md`、`人物状态/人物修正记录.md` 和 `伏笔记录/长期伏笔.md`。
+
 ## CLI 使用
 
 初始化小说项目：
@@ -156,7 +173,48 @@ python3 scripts/webnovel.py check
 python3 scripts/webnovel.py check ~/novels/my-story
 ```
 
-`init` 会创建必要目录，并在缺失时写入一些基础文件，例如 `设定集/世界观.md`、`大纲/总纲.md`、`大纲/时间线.md`、`章节索引/章节索引.md`、`伏笔记录/伏笔总表.md` 和 `人物状态/人物总表.md`。
+生成或更新章节索引：
+
+```bash
+python3 scripts/webnovel.py index ~/novels/my-story
+```
+
+搜索项目文件：
+
+```bash
+python3 scripts/webnovel.py query ~/novels/my-story 林予安
+```
+
+添加人物记录：
+
+```bash
+python3 scripts/webnovel.py add-character ~/novels/my-story 林予安
+```
+
+添加伏笔记录：
+
+```bash
+python3 scripts/webnovel.py add-hook ~/novels/my-story "三点十七"
+```
+
+生成某章审查报告：
+
+```bash
+python3 scripts/webnovel.py review-template ~/novels/my-story 1
+```
+
+`init` 会创建必要目录，并在缺失时写入一些基础文件，例如 `设定集/世界观.md`、`设定集/写作偏好.md`、`设定集/风格禁区.md`、`大纲/总纲.md`、`大纲/时间线.md`、`章节索引/章节索引.md`、`章节索引/chapters.json`、`伏笔记录/伏笔总表.md`、`伏笔记录/hooks.json`、`人物状态/人物总表.md` 和 `人物状态/characters.json`。
+
+完整示例：
+
+```bash
+python3 scripts/webnovel.py init examples/KpopNovel
+python3 scripts/webnovel.py index examples/KpopNovel
+python3 scripts/webnovel.py query examples/KpopNovel 林予安
+python3 scripts/webnovel.py add-character examples/KpopNovel 林予安
+python3 scripts/webnovel.py add-hook examples/KpopNovel "三点十七"
+python3 scripts/webnovel.py review-template examples/KpopNovel 1
+```
 
 ## 与 Claude Code 版本的区别
 
