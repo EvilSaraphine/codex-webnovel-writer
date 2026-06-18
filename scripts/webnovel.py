@@ -21,15 +21,20 @@ SKILLS = [
     "webnovel-review",
     "webnovel-query",
     "webnovel-learn",
+    "webnovel-chapter",
 ]
 TEMPLATE_FILES = [
     "AGENTS.md",
     "设定集/写作偏好.md",
     "设定集/风格禁区.md",
+    "正文/chapter-template.md",
     "章节索引/chapters.json",
+    "章节索引/summary-template.md",
+    "章节索引/summaries/.gitkeep",
     "伏笔记录/hooks.json",
     "人物状态/characters.json",
     "审查报告/review-template.md",
+    "审查报告/continuity-report-template.md",
 ]
 SEARCH_DIRS = ["设定集", "大纲", "正文", "伏笔记录", "人物状态", "章节索引"]
 
@@ -67,6 +72,20 @@ def main() -> int:
     review_parser.add_argument("path", type=Path, help="novel project path")
     review_parser.add_argument("chapter", help="chapter number")
 
+    chapter_parser = subparsers.add_parser("chapter", help="create a chapter draft package")
+    chapter_parser.add_argument("path", type=Path, help="novel project path")
+    chapter_parser.add_argument("chapter", help="chapter number")
+
+    summary_parser = subparsers.add_parser("chapter-summary", help="create a chapter summary file")
+    summary_parser.add_argument("path", type=Path, help="novel project path")
+    summary_parser.add_argument("chapter", help="chapter number")
+
+    state_parser = subparsers.add_parser("update-state", help="show character and hook state overview")
+    state_parser.add_argument("path", type=Path, help="novel project path")
+
+    continuity_parser = subparsers.add_parser("continuity-check", help="check project continuity records")
+    continuity_parser.add_argument("path", type=Path, help="novel project path")
+
     args = parser.parse_args()
     if args.command == "init":
         return cmd_init(args.path, args.force)
@@ -84,6 +103,14 @@ def main() -> int:
         return cmd_add_hook(args.path, args.title)
     if args.command == "review-template":
         return cmd_review_template(args.path, args.chapter)
+    if args.command == "chapter":
+        return cmd_chapter(args.path, args.chapter)
+    if args.command == "chapter-summary":
+        return cmd_chapter_summary(args.path, args.chapter)
+    if args.command == "update-state":
+        return cmd_update_state(args.path)
+    if args.command == "continuity-check":
+        return cmd_continuity_check(args.path)
     parser.error("unknown command")
     return 2
 
@@ -157,14 +184,9 @@ def cmd_index(path: Path) -> int:
         print(f"Error: {error}")
         return 1
 
-    draft_dir = target / "正文"
     output_path = target / "章节索引" / "chapters.json"
     chapters = []
-    for draft in sorted(draft_dir.glob("**/*")):
-        if not draft.is_file() or draft.name.startswith("."):
-            continue
-        if draft.suffix.lower() not in {".md", ".txt"}:
-            continue
+    for draft in find_chapter_files(target):
         text = read_text(draft)
         stat = draft.stat()
         chapters.append(
@@ -313,6 +335,180 @@ def cmd_review_template(path: Path, chapter: str) -> int:
     return 0
 
 
+def cmd_chapter(path: Path, chapter: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    chapter_number = parse_positive_int(chapter, "chapter")
+    if chapter_number is None:
+        return 1
+
+    chapter_padded = f"{chapter_number:03d}"
+    chapter_path = target / "正文" / f"第{chapter_padded}章.md"
+    summary_path = summary_file_path(target, chapter_number)
+    template_path = target / "正文" / "chapter-template.md"
+    if not template_path.is_file():
+        print(f"Error: missing chapter template: {template_path}")
+        return 1
+
+    if chapter_path.exists():
+        print(f"Chapter already exists, not overwriting: {chapter_path}")
+    else:
+        content = read_text(template_path).format(
+            chapter=chapter_number,
+            chapter_padded=chapter_padded,
+            title=f"第{chapter_padded}章",
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        chapter_path.write_text(content, encoding="utf-8")
+        print(f"Created chapter draft: {chapter_path}")
+
+    if summary_path.exists():
+        print(f"Summary already exists, not overwriting: {summary_path}")
+    else:
+        try:
+            create_summary_file(target, chapter_number, chapter_path)
+        except FileNotFoundError as exc:
+            print(f"Error: {exc}")
+            return 1
+        print(f"Created chapter summary: {summary_path}")
+    return 0
+
+
+def cmd_chapter_summary(path: Path, chapter: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    chapter_number = parse_positive_int(chapter, "chapter")
+    if chapter_number is None:
+        return 1
+    chapter_path = chapter_file_path(target, chapter_number)
+    if not chapter_path.is_file():
+        print(f"Error: missing chapter draft: {chapter_path}")
+        return 1
+    try:
+        output_path = create_summary_file(target, chapter_number, chapter_path)
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}")
+        return 1
+    print(f"Created chapter summary: {output_path}")
+    return 0
+
+
+def cmd_update_state(path: Path) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+
+    characters = load_json_array(target / "人物状态" / "characters.json")
+    hooks = load_json_array(target / "伏笔记录" / "hooks.json")
+    if characters is None or hooks is None:
+        return 1
+
+    print("Character state overview:")
+    if characters:
+        for item in characters:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name", "")
+            role = item.get("role", "")
+            status = item.get("status", "")
+            last_seen = item.get("last_seen_chapter")
+            print(f"- {name} | role: {role or '-'} | status: {status or '-'} | last_seen: {last_seen}")
+    else:
+        print("- No character records yet.")
+
+    print("\nHook state overview:")
+    if hooks:
+        for item in hooks:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title", "")
+            status = item.get("status", "")
+            introduced = item.get("introduced_in")
+            print(f"- {title} | status: {status or '-'} | introduced_in: {introduced}")
+    else:
+        print("- No hook records yet.")
+
+    print("\nTip: use add-character and add-hook to add missing records.")
+    return 0
+
+
+def cmd_continuity_check(path: Path) -> int:
+    target = path.expanduser().resolve()
+    errors: list[str] = []
+    warnings: list[str] = []
+    details: list[str] = []
+
+    root_error = validate_novel_root(target)
+    if root_error:
+        print(f"Error: {root_error}")
+        return 1
+
+    for dirname in NOVEL_DIRS:
+        if not (target / dirname).is_dir():
+            errors.append(f"missing directory: {dirname}")
+
+    chapters_path = target / "章节索引" / "chapters.json"
+    characters_path = target / "人物状态" / "characters.json"
+    hooks_path = target / "伏笔记录" / "hooks.json"
+    chapters = load_json_array(chapters_path)
+    characters = load_json_array(characters_path)
+    hooks = load_json_array(hooks_path)
+    if chapters is None:
+        errors.append(f"cannot read JSON array: {relative_path(target, chapters_path)}")
+        chapters = []
+    if characters is None:
+        errors.append(f"cannot read JSON array: {relative_path(target, characters_path)}")
+        characters = []
+    if hooks is None:
+        errors.append(f"cannot read JSON array: {relative_path(target, hooks_path)}")
+        hooks = []
+
+    indexed_paths = {item.get("path") for item in chapters if isinstance(item, dict)}
+    chapter_files = find_chapter_files(target)
+    for draft in chapter_files:
+        draft_relative = relative_path(target, draft)
+        if draft_relative not in indexed_paths:
+            warnings.append(f"chapter draft not indexed: {draft_relative}")
+        chapter_number = parse_chapter_number(draft)
+        if chapter_number is not None and not summary_file_path(target, chapter_number).is_file():
+            warnings.append(f"missing summary for chapter {chapter_number:03d}")
+
+    summary_dir = target / "章节索引" / "summaries"
+    if not summary_dir.is_dir():
+        warnings.append("missing summaries directory: 章节索引/summaries")
+
+    details.append(f"chapters indexed: {len(chapters)}")
+    details.append(f"chapter drafts: {len(chapter_files)}")
+    details.append(f"characters: {len(characters)}")
+    details.append(f"hooks: {len(hooks)}")
+
+    report = build_continuity_report(target, details, warnings, errors)
+    report_path = target / "审查报告" / "continuity-report.md"
+    report_path.write_text(report, encoding="utf-8")
+
+    print("Continuity check:")
+    for item in details:
+        print(f"- {item}")
+    if warnings:
+        print("\nWarnings:")
+        for warning in warnings:
+            print(f"- {warning}")
+    if errors:
+        print("\nErrors:")
+        for error in errors:
+            print(f"- {error}")
+    print(f"\nReport written: {report_path}")
+    return 1 if errors else 0
+
+
 def cmd_check(path: Path) -> int:
     target = path.expanduser().resolve()
     errors: list[str] = []
@@ -403,6 +599,101 @@ def validate_novel_root(root: Path) -> str | None:
     return None
 
 
+def parse_positive_int(value: str, label: str) -> int | None:
+    try:
+        number = int(value)
+    except ValueError:
+        print(f"Error: {label} must be a number: {value}")
+        return None
+    if number <= 0:
+        print(f"Error: {label} must be greater than 0")
+        return None
+    return number
+
+
+def chapter_file_path(root: Path, chapter_number: int) -> Path:
+    return root / "正文" / f"第{chapter_number:03d}章.md"
+
+
+def summary_file_path(root: Path, chapter_number: int) -> Path:
+    return root / "章节索引" / "summaries" / f"第{chapter_number:03d}章-summary.md"
+
+
+def find_chapter_files(root: Path) -> list[Path]:
+    draft_dir = root / "正文"
+    files = []
+    for draft in sorted(draft_dir.glob("**/*")):
+        if not draft.is_file() or draft.name.startswith("."):
+            continue
+        if draft.name == "chapter-template.md":
+            continue
+        if draft.suffix.lower() not in {".md", ".txt"}:
+            continue
+        if parse_chapter_number(draft) is None:
+            continue
+        files.append(draft)
+    return files
+
+
+def create_summary_file(root: Path, chapter_number: int, chapter_path: Path) -> Path:
+    template_path = root / "章节索引" / "summary-template.md"
+    if not template_path.is_file():
+        raise FileNotFoundError(f"missing summary template: {template_path}")
+    text = read_text(chapter_path) if chapter_path.is_file() else ""
+    chapter_padded = f"{chapter_number:03d}"
+    output_path = summary_file_path(root, chapter_number)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    content = read_text(template_path).format(
+        chapter=chapter_number,
+        chapter_padded=chapter_padded,
+        title=extract_title(text, chapter_path) if text else f"第{chapter_padded}章",
+        chapter_path=relative_path(root, chapter_path),
+        word_count=count_words(text),
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    output_path.write_text(content, encoding="utf-8")
+    return output_path
+
+
+def build_continuity_report(root: Path, details: list[str], warnings: list[str], errors: list[str]) -> str:
+    template_path = root / "审查报告" / "continuity-report-template.md"
+    if template_path.is_file():
+        template = read_text(template_path)
+    else:
+        template = (
+            "# 连续性检查报告\n\n"
+            "- 生成时间：{created_at}\n\n"
+            "## 章节索引检查\n\n{chapter_index_check}\n\n"
+            "## 人物状态检查\n\n{character_check}\n\n"
+            "## 伏笔状态检查\n\n{hook_check}\n\n"
+            "## 时间线检查\n\n{timeline_check}\n\n"
+            "## 文件缺失检查\n\n{missing_file_check}\n\n"
+            "## 建议修复项\n\n{fix_suggestions}\n"
+        )
+
+    warning_text = format_report_items(warnings, "未发现警告。")
+    error_text = format_report_items(errors, "未发现错误。")
+    detail_text = format_report_items(details, "暂无统计。")
+    fix_items = errors + warnings
+    return template.format(
+        created_at=datetime.now(timezone.utc).isoformat(),
+        chapter_index_check=detail_text,
+        character_check=detail_text,
+        hook_check=detail_text,
+        timeline_check="第一版仅检查时间线文件是否存在；复杂时间线一致性需人工审查。",
+        missing_file_check=error_text,
+        fix_suggestions=format_report_items(fix_items, "暂无建议修复项。"),
+        warnings=warning_text,
+        errors=error_text,
+    )
+
+
+def format_report_items(items: list[str], empty_text: str) -> str:
+    if not items:
+        return empty_text
+    return "\n".join(f"- {item}" for item in items)
+
+
 def parse_chapter_number(path: Path) -> int | None:
     match = re.search(r"第\s*([0-9０-９]+)\s*章", path.stem)
     if not match:
@@ -445,6 +736,21 @@ def read_json_array(path: Path) -> list | None:
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         write_json(path, [])
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid JSON in {path}: {exc}")
+        return None
+    if not isinstance(data, list):
+        print(f"Error: JSON file must contain an array: {path}")
+        return None
+    return data
+
+
+def load_json_array(path: Path) -> list | None:
+    if not path.is_file():
+        print(f"Error: missing JSON file: {path}")
+        return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
