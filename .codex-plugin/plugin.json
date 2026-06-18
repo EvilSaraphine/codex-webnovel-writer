@@ -1,0 +1,32 @@
+{
+  "name": "codex-webnovel-writer",
+  "version": "0.1.0",
+  "description": "Codex-native Skills and templates for planning, writing, reviewing, and querying long-form Chinese web novels.",
+  "author": {
+    "name": "codex-webnovel-writer maintainers"
+  },
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "skills",
+    "webnovel",
+    "writing",
+    "fiction"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Webnovel Writer",
+    "shortDescription": "Plan, draft, review, and query webnovel projects",
+    "longDescription": "A Codex-native writing workflow plugin for Chinese webnovel projects, using focused Skills for initialization, planning, chapter drafting, review, and project queries.",
+    "developerName": "codex-webnovel-writer maintainers",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use the webnovel Skills to initialize, plan, draft, review, or query a long-form fiction project."
+    ]
+  }
+}
+
