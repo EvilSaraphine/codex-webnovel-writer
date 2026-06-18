@@ -25,7 +25,7 @@ python3 scripts/webnovel.py init ../my-novel-project
 ## 功能特性
 
 - 提供 `.codex-plugin/plugin.json`，可作为本地 Codex 插件源使用。
-- 提供 7 个面向小说工作流的 Codex Skills：
+- 提供 8 个面向小说工作流的 Codex Skills：
   - `webnovel-init`：初始化小说项目目录和基础文件。
   - `webnovel-plan`：生成或修订总纲、卷纲、章节大纲和时间线。
   - `webnovel-write`：根据大纲、设定、人物状态和伏笔记录起草章节。
@@ -33,7 +33,8 @@ python3 scripts/webnovel.py init ../my-novel-project
   - `webnovel-query`：从项目文件中查询设定、人物、伏笔、章节进度和时间线。
   - `webnovel-learn`：记录用户偏好、写作禁区、人物修正和长期项目记忆。
   - `webnovel-chapter`：围绕单章进行写作准备、摘要、状态更新建议和连续性检查。
-- 提供 `scripts/webnovel.py`，支持初始化项目、查看路径、结构检查、章节模板、章节摘要、章节索引、关键词查询、人物记录、伏笔记录、状态概览、连续性检查和审查报告模板生成。
+  - `webnovel-plan-structured`：维护卷纲、章纲、时间线、人物线、场景卡和冲突线。
+- 提供 `scripts/webnovel.py`，支持初始化项目、查看路径、结构检查、结构化规划、章节模板、章节摘要、章节索引、关键词查询、人物记录、伏笔记录、状态概览、连续性检查和审查报告模板生成。
 - 提供中文小说项目模板，使用稳定 Markdown 文件保存长期记忆。
 - 强调上下文经济：按任务读取必要文件，而不是每次加载整个小说项目。
 
@@ -59,6 +60,20 @@ v0.3 增加了围绕单章写作的流水线：
 - `审查报告/continuity-report-template.md`：用于生成项目连续性检查报告。
 - `continuity-check`：检查关键 JSON、章节索引、正文与摘要是否对应，并输出 `审查报告/continuity-report.md`。
 
+## v0.4 新增能力
+
+v0.4 增加了结构化规划系统：
+
+- `webnovel-plan-structured` Skill：用于生成和维护长篇规划结构。
+- `大纲/volumes.json`：卷级规划。
+- `大纲/chapter_plans.json`：章级规划。
+- `大纲/timeline.json`：时间线。
+- `大纲/arcs.json`：人物线、关系线、事业线等长期线索。
+- `大纲/scenes.json`：场景卡。
+- `大纲/conflicts.json`：冲突线。
+- `大纲/planning-guide.md`：规划文件使用说明。
+- `outline-export`：把结构化 JSON 导出为人工可读的 `大纲/outline-export.md`。
+
 ## 通用项目原则
 
 本仓库是通用开源工具，不是某一本小说的项目仓库。仓库中不应提交用户私人小说内容、真实作品设定、真实角色名、剧情片段、未公开文本或特定 IP 内容。
@@ -82,7 +97,8 @@ codex-webnovel-writer/
 │   ├── webnovel-review/
 │   ├── webnovel-query/
 │   ├── webnovel-learn/
-│   └── webnovel-chapter/
+│   ├── webnovel-chapter/
+│   └── webnovel-plan-structured/
 ├── scripts/webnovel.py
 ├── templates/
 ├── docs/
@@ -179,6 +195,10 @@ Use webnovel-query to list unpaid foreshadowing before chapter 10.
 ### webnovel-chapter
 
 用于围绕单章进行写作准备、章节草稿生成、写后摘要、状态更新建议和连续性检查。标准流程会读取 `AGENTS.md`、`设定集/`、`大纲/`、`人物状态/characters.json`、`伏笔记录/hooks.json` 和 `章节索引/chapters.json`，写作后运行 `index` 与 `continuity-check`。
+
+### webnovel-plan-structured
+
+用于生成和维护结构化长篇规划，包括卷纲、章纲、时间线、人物线、场景卡和冲突线。JSON 用于机器可读结构，Markdown 用于人工阅读说明；规划层不直接保存正文内容。
 
 ## CLI 使用
 
@@ -281,6 +301,19 @@ python3 scripts/webnovel.py chapter-summary ../sample-novel-project 1
 python3 scripts/webnovel.py update-state ../sample-novel-project
 python3 scripts/webnovel.py continuity-check ../sample-novel-project
 python3 scripts/webnovel.py index ../sample-novel-project
+```
+
+v0.4 结构化规划示例：
+
+```bash
+python3 scripts/webnovel.py plan-init ../sample-novel-project
+python3 scripts/webnovel.py add-volume ../sample-novel-project 1 第一卷
+python3 scripts/webnovel.py add-chapter-plan ../sample-novel-project 1 第001章
+python3 scripts/webnovel.py add-scene ../sample-novel-project 1 1
+python3 scripts/webnovel.py add-timeline-event ../sample-novel-project 1 示例事件
+python3 scripts/webnovel.py add-arc ../sample-novel-project main-arc 主线关系
+python3 scripts/webnovel.py planning-status ../sample-novel-project
+python3 scripts/webnovel.py outline-export ../sample-novel-project
 ```
 
 ## 后续路线

@@ -111,3 +111,53 @@ python3 scripts/webnovel.py continuity-check ../sample-novel-project
 ```bash
 python3 scripts/webnovel.py review-template ../sample-novel-project 1
 ```
+
+## 结构化规划工作流
+
+1. 使用 `plan-init` 初始化规划文件：
+
+```bash
+python3 scripts/webnovel.py plan-init ../sample-novel-project
+```
+
+2. 使用 `add-volume` 添加卷：
+
+```bash
+python3 scripts/webnovel.py add-volume ../sample-novel-project 1 第一卷
+```
+
+3. 使用 `add-chapter-plan` 添加章纲：
+
+```bash
+python3 scripts/webnovel.py add-chapter-plan ../sample-novel-project 1 第001章
+```
+
+4. 使用 `add-scene` 添加场景卡：
+
+```bash
+python3 scripts/webnovel.py add-scene ../sample-novel-project 1 1
+```
+
+5. 使用 `add-timeline-event` 添加时间线事件：
+
+```bash
+python3 scripts/webnovel.py add-timeline-event ../sample-novel-project 1 示例事件
+```
+
+6. 使用 `add-arc` 添加人物线或关系线：
+
+```bash
+python3 scripts/webnovel.py add-arc ../sample-novel-project main-arc 主线关系
+```
+
+7. 使用 `planning-status` 检查规划完整度：
+
+```bash
+python3 scripts/webnovel.py planning-status ../sample-novel-project
+```
+
+8. 使用 `outline-export` 导出人工可读大纲：
+
+```bash
+python3 scripts/webnovel.py outline-export ../sample-novel-project
+```

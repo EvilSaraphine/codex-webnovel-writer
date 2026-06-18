@@ -22,11 +22,22 @@ SKILLS = [
     "webnovel-query",
     "webnovel-learn",
     "webnovel-chapter",
+    "webnovel-plan-structured",
+]
+PLANNING_JSON_FILES = [
+    "大纲/volumes.json",
+    "大纲/chapter_plans.json",
+    "大纲/timeline.json",
+    "大纲/arcs.json",
+    "大纲/scenes.json",
+    "大纲/conflicts.json",
 ]
 TEMPLATE_FILES = [
     "AGENTS.md",
     "设定集/写作偏好.md",
     "设定集/风格禁区.md",
+    "大纲/planning-guide.md",
+    *PLANNING_JSON_FILES,
     "正文/chapter-template.md",
     "章节索引/chapters.json",
     "章节索引/summary-template.md",
@@ -86,6 +97,40 @@ def main() -> int:
     continuity_parser = subparsers.add_parser("continuity-check", help="check project continuity records")
     continuity_parser.add_argument("path", type=Path, help="novel project path")
 
+    plan_init_parser = subparsers.add_parser("plan-init", help="initialize structured planning files")
+    plan_init_parser.add_argument("path", type=Path, help="novel project path")
+
+    volume_parser = subparsers.add_parser("add-volume", help="add a volume planning record")
+    volume_parser.add_argument("path", type=Path, help="novel project path")
+    volume_parser.add_argument("volume_number", help="volume number")
+    volume_parser.add_argument("title", nargs="?", default="", help="optional volume title")
+
+    chapter_plan_parser = subparsers.add_parser("add-chapter-plan", help="add a chapter planning record")
+    chapter_plan_parser.add_argument("path", type=Path, help="novel project path")
+    chapter_plan_parser.add_argument("chapter_number", help="chapter number")
+    chapter_plan_parser.add_argument("title", nargs="?", default="", help="optional chapter title")
+
+    timeline_parser = subparsers.add_parser("add-timeline-event", help="add a timeline event")
+    timeline_parser.add_argument("path", type=Path, help="novel project path")
+    timeline_parser.add_argument("chapter_number", help="chapter number")
+    timeline_parser.add_argument("event", nargs="?", default="", help="optional event label")
+
+    arc_parser = subparsers.add_parser("add-arc", help="add an arc record")
+    arc_parser.add_argument("path", type=Path, help="novel project path")
+    arc_parser.add_argument("arc_id", help="arc id")
+    arc_parser.add_argument("title", nargs="?", default="", help="optional arc title")
+
+    scene_parser = subparsers.add_parser("add-scene", help="add a scene card")
+    scene_parser.add_argument("path", type=Path, help="novel project path")
+    scene_parser.add_argument("chapter_number", help="chapter number")
+    scene_parser.add_argument("scene_order", help="scene order")
+
+    planning_status_parser = subparsers.add_parser("planning-status", help="show structured planning status")
+    planning_status_parser.add_argument("path", type=Path, help="novel project path")
+
+    outline_export_parser = subparsers.add_parser("outline-export", help="export structured planning to Markdown")
+    outline_export_parser.add_argument("path", type=Path, help="novel project path")
+
     args = parser.parse_args()
     if args.command == "init":
         return cmd_init(args.path, args.force)
@@ -111,6 +156,22 @@ def main() -> int:
         return cmd_update_state(args.path)
     if args.command == "continuity-check":
         return cmd_continuity_check(args.path)
+    if args.command == "plan-init":
+        return cmd_plan_init(args.path)
+    if args.command == "add-volume":
+        return cmd_add_volume(args.path, args.volume_number, args.title)
+    if args.command == "add-chapter-plan":
+        return cmd_add_chapter_plan(args.path, args.chapter_number, args.title)
+    if args.command == "add-timeline-event":
+        return cmd_add_timeline_event(args.path, args.chapter_number, args.event)
+    if args.command == "add-arc":
+        return cmd_add_arc(args.path, args.arc_id, args.title)
+    if args.command == "add-scene":
+        return cmd_add_scene(args.path, args.chapter_number, args.scene_order)
+    if args.command == "planning-status":
+        return cmd_planning_status(args.path)
+    if args.command == "outline-export":
+        return cmd_outline_export(args.path)
     parser.error("unknown command")
     return 2
 
@@ -509,6 +570,266 @@ def cmd_continuity_check(path: Path) -> int:
     return 1 if errors else 0
 
 
+def cmd_plan_init(path: Path) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+
+    created = []
+    existing = []
+    for relative in [*PLANNING_JSON_FILES, "大纲/planning-guide.md"]:
+        source = TEMPLATE_DIR / relative
+        destination = target / relative
+        if destination.exists():
+            existing.append(relative)
+            continue
+        if not source.is_file():
+            print(f"Error: missing template file: {source}")
+            return 1
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+        created.append(relative)
+
+    for relative in created:
+        print(f"Created planning file: {relative}")
+    for relative in existing:
+        print(f"Planning file exists, not overwriting: {relative}")
+    if not created:
+        print("Planning files already initialized.")
+    return 0
+
+
+def cmd_add_volume(path: Path, volume_number: str, title: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    number = parse_positive_int(volume_number, "volume_number")
+    if number is None:
+        return 1
+    json_path = target / "大纲" / "volumes.json"
+    records = read_json_array(json_path)
+    if records is None:
+        return 1
+    if any(item.get("volume_number") == number for item in records if isinstance(item, dict)):
+        print(f"Volume already exists: {number}")
+        return 0
+    records.append(
+        {
+            "volume_number": number,
+            "title": title,
+            "goal": "",
+            "central_conflict": "",
+            "main_characters": [],
+            "key_hooks": [],
+            "start_chapter": None,
+            "end_chapter": None,
+            "status": "planned",
+            "notes": "",
+        }
+    )
+    write_json(json_path, records)
+    print(f"Added volume: {number}")
+    return 0
+
+
+def cmd_add_chapter_plan(path: Path, chapter_number: str, title: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    number = parse_positive_int(chapter_number, "chapter_number")
+    if number is None:
+        return 1
+    json_path = target / "大纲" / "chapter_plans.json"
+    records = read_json_array(json_path)
+    if records is None:
+        return 1
+    if any(item.get("chapter_number") == number for item in records if isinstance(item, dict)):
+        print(f"Chapter plan already exists: {number}")
+        return 0
+    records.append(
+        {
+            "chapter_number": number,
+            "title": title or f"第{number:03d}章",
+            "volume_number": None,
+            "goal": "",
+            "pov": "",
+            "scenes": [],
+            "characters": [],
+            "hooks_to_introduce": [],
+            "hooks_to_advance": [],
+            "hooks_to_resolve": [],
+            "conflict": "",
+            "ending_hook": "",
+            "status": "planned",
+            "notes": "",
+        }
+    )
+    write_json(json_path, records)
+    print(f"Added chapter plan: {number}")
+    return 0
+
+
+def cmd_add_timeline_event(path: Path, chapter_number: str, event: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    number = parse_positive_int(chapter_number, "chapter_number")
+    if number is None:
+        return 1
+    json_path = target / "大纲" / "timeline.json"
+    records = read_json_array(json_path)
+    if records is None:
+        return 1
+    records.append(
+        {
+            "order": len(records) + 1,
+            "chapter_number": number,
+            "time_label": "",
+            "event": event,
+            "characters": [],
+            "location": "",
+            "consequences": "",
+            "notes": "",
+        }
+    )
+    write_json(json_path, records)
+    print(f"Added timeline event for chapter: {number}")
+    return 0
+
+
+def cmd_add_arc(path: Path, arc_id: str, title: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    if not arc_id:
+        print("Error: arc_id must not be empty")
+        return 1
+    json_path = target / "大纲" / "arcs.json"
+    records = read_json_array(json_path)
+    if records is None:
+        return 1
+    if any(item.get("arc_id") == arc_id for item in records if isinstance(item, dict)):
+        print(f"Arc already exists: {arc_id}")
+        return 0
+    records.append(
+        {
+            "arc_id": arc_id,
+            "arc_type": "",
+            "title": title,
+            "related_characters": [],
+            "start_chapter": None,
+            "end_chapter": None,
+            "current_stage": "",
+            "milestones": [],
+            "status": "planned",
+            "notes": "",
+        }
+    )
+    write_json(json_path, records)
+    print(f"Added arc: {arc_id}")
+    return 0
+
+
+def cmd_add_scene(path: Path, chapter_number: str, scene_order: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    chapter = parse_positive_int(chapter_number, "chapter_number")
+    order = parse_positive_int(scene_order, "scene_order")
+    if chapter is None or order is None:
+        return 1
+    json_path = target / "大纲" / "scenes.json"
+    records = read_json_array(json_path)
+    if records is None:
+        return 1
+    scene_id = f"ch{chapter:03d}-s{order:02d}"
+    if any(item.get("scene_id") == scene_id for item in records if isinstance(item, dict)):
+        print(f"Scene already exists: {scene_id}")
+        return 0
+    records.append(
+        {
+            "scene_id": scene_id,
+            "chapter_number": chapter,
+            "scene_order": order,
+            "location": "",
+            "characters": [],
+            "purpose": "",
+            "conflict": "",
+            "outcome": "",
+            "hooks": [],
+            "notes": "",
+        }
+    )
+    write_json(json_path, records)
+    print(f"Added scene: {scene_id}")
+    return 0
+
+
+def cmd_planning_status(path: Path) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+
+    missing = [relative for relative in PLANNING_JSON_FILES if not (target / relative).is_file()]
+    data = load_planning_data(target)
+    if data is None:
+        return 1
+
+    print("Planning status:")
+    for key in ["volumes", "chapter_plans", "timeline", "arcs", "scenes", "conflicts"]:
+        print(f"- {key}: {len(data[key])}")
+    if missing:
+        print("\nMissing planning files:")
+        for relative in missing:
+            print(f"- {relative}")
+    else:
+        print("\nMissing planning files: none")
+
+    draft_numbers = {parse_chapter_number(path) for path in find_chapter_files(target)}
+    draft_numbers.discard(None)
+    plan_numbers = {item.get("chapter_number") for item in data["chapter_plans"] if isinstance(item, dict)}
+    missing_plans = sorted(number for number in draft_numbers if number not in plan_numbers)
+    plans_without_drafts = sorted(number for number in plan_numbers if number not in draft_numbers and number is not None)
+    missing_summaries = sorted(number for number in draft_numbers if not summary_file_path(target, number).is_file())
+
+    print("\nDraft chapters without chapter_plan:")
+    print_number_list(missing_plans)
+    print("\nChapter plans without draft:")
+    print_number_list(plans_without_drafts)
+    print("\nDraft chapters without summary:")
+    print_number_list(missing_summaries)
+    return 0
+
+
+def cmd_outline_export(path: Path) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    data = load_planning_data(target)
+    if data is None:
+        return 1
+    output_path = target / "大纲" / "outline-export.md"
+    output_path.write_text(build_outline_export(data), encoding="utf-8")
+    print(f"Exported outline: {output_path}")
+    return 0
+
+
 def cmd_check(path: Path) -> int:
     target = path.expanduser().resolve()
     errors: list[str] = []
@@ -546,7 +867,7 @@ def check_plugin(root: Path, errors: list[str]) -> None:
     for relative in TEMPLATE_FILES:
         if not (root / "templates" / relative).is_file():
             errors.append(f"missing template file: templates/{relative}")
-    for relative in ["章节索引/chapters.json", "伏笔记录/hooks.json", "人物状态/characters.json"]:
+    for relative in ["章节索引/chapters.json", "伏笔记录/hooks.json", "人物状态/characters.json", *PLANNING_JSON_FILES]:
         path = root / "templates" / relative
         if path.is_file():
             validate_json_file(path, errors)
@@ -692,6 +1013,92 @@ def format_report_items(items: list[str], empty_text: str) -> str:
     if not items:
         return empty_text
     return "\n".join(f"- {item}" for item in items)
+
+
+def load_planning_data(root: Path) -> dict[str, list] | None:
+    mapping = {
+        "volumes": root / "大纲" / "volumes.json",
+        "chapter_plans": root / "大纲" / "chapter_plans.json",
+        "timeline": root / "大纲" / "timeline.json",
+        "arcs": root / "大纲" / "arcs.json",
+        "scenes": root / "大纲" / "scenes.json",
+        "conflicts": root / "大纲" / "conflicts.json",
+    }
+    data = {}
+    for key, path in mapping.items():
+        records = load_json_array(path)
+        if records is None:
+            return None
+        data[key] = records
+    return data
+
+
+def print_number_list(numbers: list[int]) -> None:
+    if not numbers:
+        print("- none")
+        return
+    for number in numbers:
+        print(f"- 第{number:03d}章")
+
+
+def build_outline_export(data: dict[str, list]) -> str:
+    lines = [
+        "# 结构化大纲导出",
+        "",
+        f"- 生成时间：{datetime.now(timezone.utc).isoformat()}",
+        "",
+        "## 卷纲列表",
+        "",
+    ]
+    append_records(
+        lines,
+        data["volumes"],
+        lambda item: f"- 第{item.get('volume_number')}卷：{item.get('title') or '未命名'} | 状态：{item.get('status') or '-'} | 目标：{item.get('goal') or '-'}",
+    )
+    lines.extend(["", "## 章纲列表", ""])
+    append_records(
+        lines,
+        data["chapter_plans"],
+        lambda item: f"- 第{int(item.get('chapter_number')):03d}章：{item.get('title') or '未命名'} | 卷：{item.get('volume_number')} | 目标：{item.get('goal') or '-'} | 结尾钩子：{item.get('ending_hook') or '-'}",
+    )
+    lines.extend(["", "## 时间线", ""])
+    append_records(
+        lines,
+        data["timeline"],
+        lambda item: f"- {item.get('order')}. 第{int(item.get('chapter_number')):03d}章 | {item.get('time_label') or '-'} | {item.get('event') or '-'} | 地点：{item.get('location') or '-'}",
+    )
+    lines.extend(["", "## 人物线/关系线", ""])
+    append_records(
+        lines,
+        data["arcs"],
+        lambda item: f"- {item.get('arc_id')}：{item.get('title') or '未命名'} | 类型：{item.get('arc_type') or '-'} | 阶段：{item.get('current_stage') or '-'} | 状态：{item.get('status') or '-'}",
+    )
+    lines.extend(["", "## 场景卡", ""])
+    append_records(
+        lines,
+        data["scenes"],
+        lambda item: f"- {item.get('scene_id')} | 第{int(item.get('chapter_number')):03d}章 / 场景{item.get('scene_order')} | 地点：{item.get('location') or '-'} | 目的：{item.get('purpose') or '-'}",
+    )
+    lines.extend(["", "## 冲突线", ""])
+    append_records(
+        lines,
+        data["conflicts"],
+        lambda item: f"- {item.get('conflict_id')}：{item.get('title') or '未命名'} | 类型：{item.get('conflict_type') or '-'} | 状态：{item.get('status') or '-'} | 利害关系：{item.get('stakes') or '-'}",
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def append_records(lines: list[str], records: list, formatter) -> None:
+    if not records:
+        lines.append("- 暂无记录。")
+        return
+    for item in records:
+        if isinstance(item, dict):
+            try:
+                lines.append(formatter(item))
+            except (TypeError, ValueError):
+                lines.append(f"- {item}")
 
 
 def parse_chapter_number(path: Path) -> int | None:

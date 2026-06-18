@@ -38,6 +38,7 @@
 - `skills/webnovel-query/SKILL.md`: answer questions from project files.
 - `skills/webnovel-learn/SKILL.md`: record preferences and long-term project memory.
 - `skills/webnovel-chapter/SKILL.md`: manage single-chapter workflow.
+- `skills/webnovel-plan-structured/SKILL.md`: maintain structured planning files.
 - `scripts/webnovel.py`: small CLI for project setup, indexing, querying, state overview, and chapter workflow.
 - `templates/AGENTS.md`: starter AGENTS file for a novel project.
 - `templates/设定集/`: worldbuilding and rules.
