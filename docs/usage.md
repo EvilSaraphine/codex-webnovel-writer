@@ -3,7 +3,7 @@
 ## Initialize a Novel Project
 
 ```bash
-python3 scripts/webnovel.py init ~/novels/my-story
+python3 scripts/webnovel.py init ../sample-novel-project
 ```
 
 The command creates:
@@ -18,6 +18,20 @@ The command creates:
 - `章节索引/`
 
 It also seeds starter Markdown files for worldbuilding, total outline, timeline, chapter index, foreshadowing, and character state.
+
+## 工具仓库与作品仓库分离
+
+`codex-webnovel-writer` 是工具仓库，用来保存 Codex Skills、CLI、模板和文档。用户自己的小说项目应该由 `init` 命令生成到独立目录。
+
+不建议把真实作品内容、私人设定、真实角色名、剧情片段或未公开文本提交到本工具仓库。工具仓库中的示例应使用通用占位内容。
+
+推荐使用独立目录：
+
+```bash
+python3 scripts/webnovel.py init ../sample-novel-project
+python3 scripts/webnovel.py chapter ../sample-novel-project 1
+python3 scripts/webnovel.py index ../sample-novel-project
+```
 
 ## Use With Codex
 
@@ -41,7 +55,7 @@ python3 scripts/webnovel.py check
 Validate a novel project:
 
 ```bash
-python3 scripts/webnovel.py check ~/novels/my-story
+python3 scripts/webnovel.py check ../sample-novel-project
 ```
 
 ## Recommended Loop
@@ -59,7 +73,7 @@ python3 scripts/webnovel.py check ~/novels/my-story
 1. 使用 `chapter` 生成章节模板：
 
 ```bash
-python3 scripts/webnovel.py chapter ~/novels/my-story 1
+python3 scripts/webnovel.py chapter ../sample-novel-project 1
 ```
 
 2. 让 Codex 根据 `webnovel-chapter` Skill 写作或修订该章。
@@ -71,29 +85,29 @@ Use webnovel-chapter to draft chapter 1.
 3. 使用 `chapter-summary` 生成结构化章节摘要：
 
 ```bash
-python3 scripts/webnovel.py chapter-summary ~/novels/my-story 1
+python3 scripts/webnovel.py chapter-summary ../sample-novel-project 1
 ```
 
 4. 使用 `index` 更新章节索引：
 
 ```bash
-python3 scripts/webnovel.py index ~/novels/my-story
+python3 scripts/webnovel.py index ../sample-novel-project
 ```
 
 5. 使用 `update-state` 查看人物和伏笔状态概览：
 
 ```bash
-python3 scripts/webnovel.py update-state ~/novels/my-story
+python3 scripts/webnovel.py update-state ../sample-novel-project
 ```
 
 6. 使用 `continuity-check` 检查连续性和缺失文件：
 
 ```bash
-python3 scripts/webnovel.py continuity-check ~/novels/my-story
+python3 scripts/webnovel.py continuity-check ../sample-novel-project
 ```
 
 7. 使用 `review-template` 生成单章审查报告：
 
 ```bash
-python3 scripts/webnovel.py review-template ~/novels/my-story 1
+python3 scripts/webnovel.py review-template ../sample-novel-project 1
 ```

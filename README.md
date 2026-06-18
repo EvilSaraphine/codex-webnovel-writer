@@ -4,7 +4,15 @@
 
 `codex-webnovel-writer` 是一个 Codex 原生的长篇网文/小说写作工作流项目，提供 Codex Skills、项目模板和简单 CLI，用于初始化小说项目、生成大纲、写章节、审查一致性、查询设定和伏笔。
 
-它不是完整的写作应用，也不包含数据库或发布系统。项目重点是把长篇创作中常见的设定、总纲、章节大纲、正文、审查报告、人物状态、伏笔记录和章节索引整理成稳定的 Markdown 文件结构，方便 Codex 在较小上下文内完成可追踪的协作。
+它是通用写作工具，不是某一本小说的作品仓库，也不包含任何具体小说内容。项目重点是把长篇创作中常见的设定、总纲、章节大纲、正文、审查报告、人物状态、伏笔记录和章节索引整理成稳定的 Markdown 文件结构，方便 Codex 在较小上下文内完成可追踪的协作。
+
+用户自己的小说项目应放在独立目录中，例如：
+
+```bash
+python3 scripts/webnovel.py init ../my-novel-project
+```
+
+本工具仓库本体只保存插件、Skills、CLI、文档和通用模板。
 
 ## 为什么做 Codex 版本
 
@@ -50,6 +58,14 @@ v0.3 增加了围绕单章写作的流水线：
 - `章节索引/summary-template.md`：用于生成结构化章节摘要。
 - `审查报告/continuity-report-template.md`：用于生成项目连续性检查报告。
 - `continuity-check`：检查关键 JSON、章节索引、正文与摘要是否对应，并输出 `审查报告/continuity-report.md`。
+
+## 通用项目原则
+
+本仓库是通用开源工具，不是某一本小说的项目仓库。仓库中不应提交用户私人小说内容、真实作品设定、真实角色名、剧情片段、未公开文本或特定 IP 内容。
+
+所有模板、测试样例和文档示例都应使用通用占位内容，例如 `主角A`、`角色B`、`某个旧物`、`第一卷`、`第001章`、`示例伏笔` 和 `示例地点`。
+
+用户自己的小说内容应放在由本工具初始化出来的独立项目目录中，而不是放进工具仓库本体。如果需要保留示例目录，请使用 `generic-novel`、`sample-project` 这类通用名称。
 
 ## 项目结构
 
@@ -122,7 +138,7 @@ python3 scripts/webnovel.py check
 初始化一个小说项目：
 
 ```bash
-python3 scripts/webnovel.py init ~/novels/my-story
+python3 scripts/webnovel.py init ../sample-novel-project
 ```
 
 之后可以用自然语言让 Codex 调用对应 Skill，例如：
@@ -211,19 +227,19 @@ python3 scripts/webnovel.py chapter-summary ~/novels/my-story 1
 搜索项目文件：
 
 ```bash
-python3 scripts/webnovel.py query ~/novels/my-story 林予安
+python3 scripts/webnovel.py query ~/novels/my-story 主角A
 ```
 
 添加人物记录：
 
 ```bash
-python3 scripts/webnovel.py add-character ~/novels/my-story 林予安
+python3 scripts/webnovel.py add-character ~/novels/my-story 主角A
 ```
 
 添加伏笔记录：
 
 ```bash
-python3 scripts/webnovel.py add-hook ~/novels/my-story "三点十七"
+python3 scripts/webnovel.py add-hook ~/novels/my-story "示例伏笔"
 ```
 
 查看人物和伏笔状态概览：
@@ -249,23 +265,29 @@ python3 scripts/webnovel.py review-template ~/novels/my-story 1
 完整示例：
 
 ```bash
-python3 scripts/webnovel.py init examples/KpopNovel
-python3 scripts/webnovel.py index examples/KpopNovel
-python3 scripts/webnovel.py query examples/KpopNovel 林予安
-python3 scripts/webnovel.py add-character examples/KpopNovel 林予安
-python3 scripts/webnovel.py add-hook examples/KpopNovel "三点十七"
-python3 scripts/webnovel.py review-template examples/KpopNovel 1
+python3 scripts/webnovel.py init ../sample-novel-project
+python3 scripts/webnovel.py index ../sample-novel-project
+python3 scripts/webnovel.py query ../sample-novel-project 主角A
+python3 scripts/webnovel.py add-character ../sample-novel-project 主角A
+python3 scripts/webnovel.py add-hook ../sample-novel-project "示例伏笔"
+python3 scripts/webnovel.py review-template ../sample-novel-project 1
 ```
 
 v0.3 单章流水线示例：
 
 ```bash
-python3 scripts/webnovel.py chapter examples/KpopNovel 1
-python3 scripts/webnovel.py chapter-summary examples/KpopNovel 1
-python3 scripts/webnovel.py update-state examples/KpopNovel
-python3 scripts/webnovel.py continuity-check examples/KpopNovel
-python3 scripts/webnovel.py index examples/KpopNovel
+python3 scripts/webnovel.py chapter ../sample-novel-project 1
+python3 scripts/webnovel.py chapter-summary ../sample-novel-project 1
+python3 scripts/webnovel.py update-state ../sample-novel-project
+python3 scripts/webnovel.py continuity-check ../sample-novel-project
+python3 scripts/webnovel.py index ../sample-novel-project
 ```
+
+## 后续路线
+
+- Local Retrieval / Light RAG：第一版检索能力默认在本地运行，使用项目 Markdown 与 JSON 文件做轻量搜索，不联网、不需要 API，也不把 embedding provider 作为默认依赖。
+- 未来可以选择性支持 embedding provider，用于更好的本地语义检索；这应保持为可选能力，不影响基础 CLI 和 Skills 工作流。
+- 继续完善章节摘要、人物状态和伏笔状态之间的同步检查。
 
 ## 与 Claude Code 版本的区别
 
