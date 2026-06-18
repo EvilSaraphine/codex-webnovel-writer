@@ -225,3 +225,43 @@ python3 scripts/webnovel.py doctor ../sample-novel-project
 ```bash
 python3 scripts/webnovel.py doctor ../sample-novel-project --deep
 ```
+
+## 章节深度审查工作流
+
+推荐在章节完成后运行结构化深度审查：
+
+1. 写完章节。
+
+2. 运行 `chapter-summary`：
+
+```bash
+python3 scripts/webnovel.py chapter-summary ../sample-novel-project 1
+```
+
+3. 运行 `index`：
+
+```bash
+python3 scripts/webnovel.py index ../sample-novel-project
+```
+
+4. 运行 `build-index`：
+
+```bash
+python3 scripts/webnovel.py build-index ../sample-novel-project
+```
+
+5. 运行 `context-pack`：
+
+```bash
+python3 scripts/webnovel.py context-pack ../sample-novel-project 1
+```
+
+6. 运行 `review`：
+
+```bash
+python3 scripts/webnovel.py review ../sample-novel-project 1
+```
+
+7. 查看 `审查报告/第001章-deep-review.md`。
+
+8. 用户自行决定是否修改正文或更新状态文件。review 只给诊断和建议，不会自动修复。

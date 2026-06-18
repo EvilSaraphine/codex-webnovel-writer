@@ -28,6 +28,7 @@ SKILLS = [
     "webnovel-plan-structured",
     "webnovel-retrieve",
     "webnovel-doctor",
+    "webnovel-review-deep",
 ]
 PLANNING_JSON_FILES = [
     "大纲/volumes.json",
@@ -53,6 +54,8 @@ TEMPLATE_FILES = [
     "审查报告/review-template.md",
     "审查报告/continuity-report-template.md",
     "审查报告/doctor-report-template.md",
+    "审查报告/deep-review-template.md",
+    "审查报告/review-summary-template.md",
     ".webnovel/.gitkeep",
     ".webnovel/retrieval-config.json",
 ]
@@ -161,6 +164,18 @@ def main() -> int:
     doctor_parser.add_argument("path", type=Path, help="novel project path")
     doctor_parser.add_argument("--deep", action="store_true", help="include detailed diagnostic lists")
 
+    deep_review_parser = subparsers.add_parser("review", help="run a read-only structured chapter review")
+    deep_review_parser.add_argument("path", type=Path, help="novel project path")
+    deep_review_parser.add_argument("chapter_number", help="chapter number")
+
+    review_range_parser = subparsers.add_parser("review-range", help="run structured reviews for a chapter range")
+    review_range_parser.add_argument("path", type=Path, help="novel project path")
+    review_range_parser.add_argument("start_chapter", help="start chapter number")
+    review_range_parser.add_argument("end_chapter", help="end chapter number")
+
+    review_status_parser = subparsers.add_parser("review-status", help="show deep review report coverage")
+    review_status_parser.add_argument("path", type=Path, help="novel project path")
+
     args = parser.parse_args()
     if args.command == "init":
         return cmd_init(args.path, args.force)
@@ -212,6 +227,12 @@ def main() -> int:
         return cmd_retrieval_status(args.path)
     if args.command == "doctor":
         return cmd_doctor(args.path, args.deep)
+    if args.command == "review":
+        return cmd_deep_review(args.path, args.chapter_number)
+    if args.command == "review-range":
+        return cmd_review_range(args.path, args.start_chapter, args.end_chapter)
+    if args.command == "review-status":
+        return cmd_review_status(args.path)
     parser.error("unknown command")
     return 2
 
@@ -1081,6 +1102,83 @@ def cmd_doctor(path: Path, deep: bool) -> int:
     return 1 if counts["ERROR"] else 0
 
 
+def cmd_deep_review(path: Path, chapter_number: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    number = parse_positive_int(chapter_number, "chapter_number")
+    if number is None:
+        return 1
+    result = run_deep_review(target, number)
+    write_deep_review_report(target, number, result)
+    counts = count_review_findings(result["findings"])
+    print(f"Review 第{number:03d}章: PASS={counts['pass']} WARN={counts['warning']} ERROR={counts['error']}")
+    print(f"Report written: {result['report_path']}")
+    return 1 if counts["error"] else 0
+
+
+def cmd_review_range(path: Path, start_chapter: str, end_chapter: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    start = parse_positive_int(start_chapter, "start_chapter")
+    end = parse_positive_int(end_chapter, "end_chapter")
+    if start is None or end is None:
+        return 1
+    if end < start:
+        print("Error: end_chapter must be greater than or equal to start_chapter")
+        return 1
+
+    results = []
+    total = {"pass": 0, "warning": 0, "error": 0}
+    for number in range(start, end + 1):
+        result = run_deep_review(target, number)
+        write_deep_review_report(target, number, result)
+        counts = count_review_findings(result["findings"])
+        for key in total:
+            total[key] += counts[key]
+        results.append((number, result, counts))
+        print(f"Review 第{number:03d}章: PASS={counts['pass']} WARN={counts['warning']} ERROR={counts['error']}")
+
+    summary_path = write_review_summary(target, start, end, results, total)
+    print(f"Summary written: {summary_path}")
+    return 1 if total["error"] else 0
+
+
+def cmd_review_status(path: Path) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    report_dir = target / "审查报告"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    deep_reports = sorted(report_dir.glob("第*章-deep-review.md"))
+    summaries = sorted(report_dir.glob("review-summary-第*-第*章.md"), key=lambda item: item.stat().st_mtime if item.is_file() else 0)
+    chapter_numbers = {parse_chapter_number(path) for path in find_chapter_files(target)}
+    chapter_numbers.discard(None)
+    reviewed_numbers = {parse_chapter_number(path) for path in deep_reports}
+    reviewed_numbers.discard(None)
+    missing = sorted(number for number in chapter_numbers if number not in reviewed_numbers)
+
+    print("Review status:")
+    print(f"- report_dir: {report_dir}")
+    print(f"- deep_review_reports: {len(deep_reports)}")
+    print(f"- draft_chapters: {len(chapter_numbers)}")
+    print(f"- chapters_missing_deep_review: {len(missing)}")
+    for number in missing:
+        print(f"  - 第{number:03d}章")
+    if summaries:
+        print(f"- latest_review_summary: {relative_path(target, summaries[-1])}")
+    else:
+        print("- latest_review_summary: none")
+    return 0
+
+
 def cmd_check(path: Path) -> int:
     target = path.expanduser().resolve()
     errors: list[str] = []
@@ -1358,6 +1456,435 @@ def append_records(lines: list[str], records: list, formatter) -> None:
                 lines.append(formatter(item))
             except (TypeError, ValueError):
                 lines.append(f"- {item}")
+
+
+def run_deep_review(root: Path, chapter_number: int) -> dict:
+    findings: list[dict] = []
+    data: dict[str, object] = {}
+    chapter_path = chapter_file_path(root, chapter_number)
+    chapter_text = read_text(chapter_path) if chapter_path.is_file() else ""
+    data["chapter_path"] = chapter_path
+    data["chapter_text"] = chapter_text
+
+    review_check_chapter_body(root, chapter_number, chapter_path, chapter_text, findings)
+    review_check_index(root, chapter_number, findings)
+    review_check_summary(root, chapter_number, findings)
+
+    chapter_plans = review_load_json(root, "大纲/chapter_plans.json", "plan_alignment", findings, expected_type=list)
+    chapter_plan = find_record_by_number(chapter_plans, "chapter_number", chapter_number) if isinstance(chapter_plans, list) else None
+    data["chapter_plan"] = chapter_plan
+    review_check_chapter_plan(chapter_number, chapter_text, chapter_plans, chapter_plan, findings)
+
+    characters = review_load_json(root, "人物状态/characters.json", "character", findings, expected_type=list)
+    review_check_characters_deep(chapter_number, chapter_text, characters, findings)
+
+    hooks = review_load_json(root, "伏笔记录/hooks.json", "hook", findings, expected_type=list)
+    review_check_hooks_deep(chapter_text, hooks, findings)
+
+    timeline = review_load_json(root, "大纲/timeline.json", "timeline", findings, expected_type=list)
+    review_check_timeline(chapter_number, timeline, findings)
+
+    scenes = review_load_json(root, "大纲/scenes.json", "scene_conflict", findings, expected_type=list)
+    conflicts = review_load_json(root, "大纲/conflicts.json", "scene_conflict", findings, expected_type=list)
+    review_check_scenes_conflicts(chapter_number, scenes, conflicts, findings)
+
+    review_check_retrieval_context(root, chapter_number, findings)
+    review_check_setting_risks(root, chapter_number, chapter_text, findings)
+
+    report_path = root / "审查报告" / f"第{chapter_number:03d}章-deep-review.md"
+    return {"findings": findings, "report_path": report_path, "chapter_plan": chapter_plan}
+
+
+def review_add(findings: list[dict], level: str, category: str, message: str, suggestion: str = "") -> None:
+    findings.append({"level": level, "category": category, "message": message, "suggestion": suggestion})
+
+
+def count_review_findings(findings: list[dict]) -> dict[str, int]:
+    counts = {"pass": 0, "warning": 0, "error": 0}
+    for item in findings:
+        level = item.get("level")
+        if level in counts:
+            counts[level] += 1
+    return counts
+
+
+def review_load_json(root: Path, relative: str, category: str, findings: list[dict], expected_type=None):
+    path = root / relative
+    if not path.is_file():
+        review_add(findings, "warning", category, f"missing JSON file: {relative}", "补齐该文件，或运行对应初始化命令。")
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        review_add(findings, "error", category, f"invalid JSON in {relative}: {exc}", "先修复 JSON 格式，再重新运行 review。")
+        return None
+    if expected_type is not None and not isinstance(data, expected_type):
+        review_add(findings, "error", category, f"{relative} has unexpected JSON type", f"该文件应为 {expected_type.__name__}。")
+        return None
+    review_add(findings, "pass", category, f"read JSON: {relative}", "")
+    return data
+
+
+def review_check_chapter_body(root: Path, chapter_number: int, chapter_path: Path, chapter_text: str, findings: list[dict]) -> None:
+    category = "chapter_structure"
+    if not chapter_path.is_file():
+        review_add(findings, "error", category, f"missing chapter draft: {relative_path(root, chapter_path)}", "先生成或补齐正文文件。")
+        return
+    review_add(findings, "pass", category, f"chapter draft exists: {relative_path(root, chapter_path)}", "")
+    word_count = count_words(chapter_text)
+    if word_count == 0:
+        review_add(findings, "warning", category, f"chapter draft is empty: 第{chapter_number:03d}章", "补写正文后再审查。")
+    elif word_count < 200:
+        review_add(findings, "warning", category, f"chapter draft is short: {word_count} non-space characters", "确认这是草稿、短章，还是需要补充正文。")
+    else:
+        review_add(findings, "pass", category, f"chapter draft has content: {word_count} non-space characters", "")
+
+
+def review_check_index(root: Path, chapter_number: int, findings: list[dict]) -> None:
+    category = "index_summary"
+    chapters = review_load_json(root, "章节索引/chapters.json", category, findings, expected_type=list)
+    if not isinstance(chapters, list):
+        return
+    record = find_record_by_number(chapters, "chapter_number", chapter_number)
+    if record is None:
+        review_add(findings, "warning", category, f"chapter not listed in chapters.json: 第{chapter_number:03d}章", "运行 `index` 更新章节索引。")
+    else:
+        review_add(findings, "pass", category, f"chapter is listed in chapters.json: 第{chapter_number:03d}章", "")
+    for item in chapters:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("path")
+        if isinstance(path, str) and not (root / path).is_file():
+            review_add(findings, "warning", category, f"indexed chapter path is missing: {path}", "运行 `index` 或修正 chapters.json。")
+
+
+def review_check_summary(root: Path, chapter_number: int, findings: list[dict]) -> None:
+    category = "index_summary"
+    summary_path = summary_file_path(root, chapter_number)
+    if not summary_path.is_file():
+        review_add(findings, "warning", category, f"missing chapter summary: {relative_path(root, summary_path)}", "运行 `chapter-summary` 生成摘要。")
+        return
+    text = read_text(summary_path)
+    review_add(findings, "pass", category, f"chapter summary exists: {relative_path(root, summary_path)}", "")
+    if count_words(text) < 80:
+        review_add(findings, "warning", category, f"chapter summary is short: {relative_path(root, summary_path)}", "补全本章发生事项、人物变化、伏笔和承接点。")
+    else:
+        review_add(findings, "pass", category, "chapter summary has enough structure/content", "")
+
+
+def review_check_chapter_plan(chapter_number: int, chapter_text: str, chapter_plans, chapter_plan, findings: list[dict]) -> None:
+    category = "plan_alignment"
+    if not isinstance(chapter_plans, list):
+        return
+    if chapter_plan is None:
+        review_add(findings, "warning", category, f"missing chapter_plan for 第{chapter_number:03d}章", "运行 `add-chapter-plan` 并补齐目标、冲突、角色、场景和伏笔字段。")
+        return
+    review_add(findings, "pass", category, f"chapter_plan exists for 第{chapter_number:03d}章", "")
+    core_values = [
+        chapter_plan.get("goal"),
+        chapter_plan.get("conflict"),
+        chapter_plan.get("scenes"),
+        chapter_plan.get("characters"),
+    ]
+    if all(is_empty_value(value) for value in core_values):
+        review_add(findings, "warning", category, "chapter_plan goal/conflict/scenes/characters are all empty", "补齐章纲核心字段后再判断章节对齐。")
+    else:
+        review_add(findings, "pass", category, "chapter_plan has at least one core planning field", "")
+    for name in list_value(chapter_plan.get("characters")):
+        if name and name not in chapter_text:
+            review_add(findings, "warning", category, f"planned character not found in chapter text: {name}", "确认角色是否应出场，或更新章纲。")
+    for field in ["hooks_to_introduce", "hooks_to_advance", "hooks_to_resolve"]:
+        for hook in list_value(chapter_plan.get(field)):
+            if hook and hook not in chapter_text:
+                review_add(findings, "warning", category, f"planned hook not found in chapter text: {hook}", f"确认 `{field}` 是否已在正文体现，或更新章纲/伏笔记录。")
+
+
+def review_check_characters_deep(chapter_number: int, chapter_text: str, characters, findings: list[dict]) -> None:
+    category = "character"
+    if not isinstance(characters, list):
+        return
+    if not characters:
+        review_add(findings, "warning", category, "characters.json is empty", "建议补充人物状态记录。")
+        return
+    for index, item in enumerate(characters, start=1):
+        if not isinstance(item, dict):
+            review_add(findings, "warning", category, f"character record #{index} is not an object", "修正 characters.json 结构。")
+            continue
+        name = item.get("name")
+        if not name:
+            review_add(findings, "warning", category, f"character record #{index} missing name", "补齐 name 字段。")
+            continue
+        last_seen = item.get("last_seen_chapter")
+        if name in chapter_text and isinstance(last_seen, int) and last_seen < chapter_number:
+            review_add(findings, "warning", category, f"character appears but last_seen_chapter is older: {name}", "确认是否需要更新人物状态。")
+    review_add(findings, "pass", category, f"character records checked: {len(characters)}", "")
+
+
+def review_check_hooks_deep(chapter_text: str, hooks, findings: list[dict]) -> None:
+    category = "hook"
+    if not isinstance(hooks, list):
+        return
+    if not hooks:
+        review_add(findings, "warning", category, "hooks.json is empty", "建议补充伏笔记录。")
+        return
+    for index, item in enumerate(hooks, start=1):
+        if not isinstance(item, dict):
+            review_add(findings, "warning", category, f"hook record #{index} is not an object", "修正 hooks.json 结构。")
+            continue
+        missing = [field for field in ["title", "status"] if not item.get(field)]
+        if missing:
+            review_add(findings, "warning", category, f"hook record #{index} missing field(s): {', '.join(missing)}", "补齐伏笔 title/status 字段。")
+        title = item.get("title")
+        if title and title in chapter_text:
+            review_add(findings, "warning", category, f"hook title appears in chapter text: {title}", "确认该伏笔 status 是否需要更新。")
+    review_add(findings, "pass", category, f"hook records checked: {len(hooks)}", "")
+
+
+def review_check_timeline(chapter_number: int, timeline, findings: list[dict]) -> None:
+    category = "timeline"
+    if not isinstance(timeline, list):
+        return
+    events = [item for item in timeline if isinstance(item, dict) and item.get("chapter_number") == chapter_number]
+    if not events:
+        review_add(findings, "warning", category, f"no timeline event for 第{chapter_number:03d}章", "如本章推进事件，建议补充 timeline event。")
+    else:
+        review_add(findings, "pass", category, f"timeline events for chapter: {len(events)}", "")
+    seen = []
+    for index, item in enumerate(timeline, start=1):
+        if not isinstance(item, dict):
+            continue
+        number = item.get("chapter_number")
+        if number is None:
+            review_add(findings, "warning", category, f"timeline event #{index} missing chapter_number", "补齐时间线章节号。")
+        elif number in seen:
+            review_add(findings, "warning", category, f"timeline chapter_number repeated: {number}", "确认重复是否代表同章多事件；必要时补 order 或 notes。")
+        seen.append(number)
+
+
+def review_check_scenes_conflicts(chapter_number: int, scenes, conflicts, findings: list[dict]) -> None:
+    category = "scene_conflict"
+    if isinstance(scenes, list):
+        chapter_scenes = [item for item in scenes if isinstance(item, dict) and item.get("chapter_number") == chapter_number]
+        if not chapter_scenes:
+            review_add(findings, "warning", category, f"no scene card for 第{chapter_number:03d}章", "运行 `add-scene` 或补齐 scenes.json。")
+        else:
+            review_add(findings, "pass", category, f"scene cards for chapter: {len(chapter_scenes)}", "")
+        for item in chapter_scenes:
+            scene_id = item.get("scene_id") or f"chapter {chapter_number}"
+            missing = [field for field in ["purpose", "conflict", "outcome"] if not item.get(field)]
+            if missing:
+                review_add(findings, "warning", category, f"scene {scene_id} missing field(s): {', '.join(missing)}", "补齐场景目的、冲突和结果，便于审查节奏。")
+    if isinstance(conflicts, list):
+        active = [
+            item
+            for item in conflicts
+            if isinstance(item, dict) and str(item.get("status", "")).lower() in {"active", "open", "进行中", "开启"}
+        ]
+        if not active:
+            review_add(findings, "warning", category, "no active/open conflict records", "如项目需要结构化冲突线，补充 conflicts.json。")
+        else:
+            review_add(findings, "pass", category, f"active/open conflict records: {len(active)}", "")
+
+
+def review_check_retrieval_context(root: Path, chapter_number: int, findings: list[dict]) -> None:
+    category = "retrieval_context"
+    pack_path = context_pack_path(root, chapter_number)
+    if pack_path.is_file():
+        review_add(findings, "pass", category, f"context pack exists: {relative_path(root, pack_path)}", "")
+        if count_words(read_text(pack_path)) < 120:
+            review_add(findings, "warning", category, "context pack is short", "确认 context-pack 是否包含足够的相关片段。")
+    else:
+        review_add(findings, "warning", category, f"context pack missing: {relative_path(root, pack_path)}", "运行 `context-pack` 生成写作上下文包。")
+    index_path = root / RETRIEVAL_DIR / "retrieval-index.json"
+    if not index_path.is_file():
+        review_add(findings, "warning", category, "retrieval-index.json missing", "运行 `build-index` 建立本地检索索引。")
+        return
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        review_add(findings, "error", category, f"invalid retrieval-index.json: {exc}", "修复索引 JSON 或重新运行 `build-index`。")
+        return
+    built_at = parse_datetime(str(index.get("built_at", "")))
+    if not built_at:
+        review_add(findings, "warning", category, "retrieval index missing valid built_at", "重新运行 `build-index`。")
+        return
+    stale = []
+    for source in [chapter_file_path(root, chapter_number), root / "大纲" / "chapter_plans.json"]:
+        if source.is_file() and datetime.fromtimestamp(source.stat().st_mtime, timezone.utc) > built_at:
+            stale.append(relative_path(root, source))
+    if stale:
+        review_add(findings, "warning", category, "retrieval index may be stale: " + ", ".join(stale), "运行 `build-index` 更新索引。")
+    else:
+        review_add(findings, "pass", category, "retrieval index is current for chapter draft and chapter plans", "")
+
+
+def review_check_setting_risks(root: Path, chapter_number: int, chapter_text: str, findings: list[dict]) -> None:
+    category = "setting_risk"
+    if "待填写" in chapter_text:
+        review_add(findings, "warning", category, "chapter still contains placeholder text: 待填写", "补齐模板占位内容后再进入正式审查。")
+    else:
+        review_add(findings, "pass", category, "no obvious placeholder marker found in chapter text", "")
+    safety_matches = []
+    targets = [
+        chapter_file_path(root, chapter_number),
+        summary_file_path(root, chapter_number),
+        context_pack_path(root, chapter_number),
+    ]
+    for path in targets:
+        if not path.is_file():
+            continue
+        text = read_text(path)
+        for line in text.splitlines():
+            if any(term in line for term in DOCTOR_SAFETY_TERMS):
+                safety_matches.append(f"{relative_path(root, path)}: {line.strip()[:120]}")
+                break
+    if safety_matches:
+        review_add(findings, "warning", category, "generic content safety terms found", "对 examples/templates/docs 应清理；真实用户项目可自行判断是否忽略。")
+        for item in safety_matches:
+            review_add(findings, "warning", category, item, "检查是否为不应进入通用示例的内容。")
+    else:
+        review_add(findings, "pass", category, "no generic content safety terms found in reviewed files", "")
+
+
+def write_deep_review_report(root: Path, chapter_number: int, result: dict) -> None:
+    findings = result["findings"]
+    counts = count_review_findings(findings)
+    report_path = result["report_path"]
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    template = read_review_template(root, "deep-review-template.md")
+    risk_level = "error" if counts["error"] else ("warning" if counts["warning"] else "pass")
+    report = template.format(
+        chapter_padded=f"{chapter_number:03d}",
+        review_target=f"正文/第{chapter_number:03d}章.md",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        summary=f"- pass：{counts['pass']}\n- warning：{counts['warning']}\n- error：{counts['error']}",
+        risk_level=risk_level,
+        chapter_structure_check=format_review_category(findings, "chapter_structure"),
+        plan_alignment_check=format_review_category(findings, "plan_alignment"),
+        character_check=format_review_category(findings, "character"),
+        hook_check=format_review_category(findings, "hook"),
+        timeline_check=format_review_category(findings, "timeline"),
+        scene_conflict_check=format_review_category(findings, "scene_conflict"),
+        index_summary_check=format_review_category(findings, "index_summary"),
+        retrieval_context_check=format_review_category(findings, "retrieval_context"),
+        setting_risk_check=format_review_category(findings, "setting_risk"),
+        questions=format_review_questions(findings),
+        fix_suggestions=format_review_suggestions(findings),
+        post_write_todos=format_review_todos(findings),
+        raw_findings=format_raw_review_findings(findings),
+    )
+    report_path.write_text(report, encoding="utf-8")
+
+
+def write_review_summary(root: Path, start: int, end: int, results: list, total: dict[str, int]) -> Path:
+    output_path = root / "审查报告" / f"review-summary-第{start:03d}-第{end:03d}章.md"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    template = read_review_template(root, "review-summary-template.md")
+    high_priority = []
+    chapter_reports = []
+    for number, result, counts in results:
+        report_path = result["report_path"]
+        chapter_reports.append(
+            f"- 第{number:03d}章：pass={counts['pass']} warning={counts['warning']} error={counts['error']} | {relative_path(root, report_path)}"
+        )
+        for item in result["findings"]:
+            if item["level"] in {"error", "warning"}:
+                high_priority.append(f"- 第{number:03d}章 [{item['level']}] {item['message']}")
+    report = template.format(
+        review_range=f"第{start:03d}章-第{end:03d}章",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        pass_count=total["pass"],
+        warning_count=total["warning"],
+        error_count=total["error"],
+        high_priority_issues="\n".join(high_priority[:20]) if high_priority else "- 暂无高优先级问题。",
+        next_steps=(
+            "- 先处理 error，再处理 warning。\n"
+            "- 用户自行决定是否修改正文或更新状态文件。\n"
+            "- 修改后重新运行 `chapter-summary`、`index`、`build-index`、`context-pack` 和 `review`。"
+        ),
+        chapter_reports="\n".join(chapter_reports) if chapter_reports else "- 暂无分章报告。",
+    )
+    output_path.write_text(report, encoding="utf-8")
+    return output_path
+
+
+def read_review_template(root: Path, name: str) -> str:
+    project_template = root / "审查报告" / name
+    if project_template.is_file():
+        return read_text(project_template)
+    return read_text(TEMPLATE_DIR / "审查报告" / name)
+
+
+def format_review_category(findings: list[dict], category: str) -> str:
+    items = [item for item in findings if item["category"] == category]
+    if not items:
+        return "- 暂无检查项。"
+    return "\n".join(format_review_item(item) for item in items)
+
+
+def format_review_item(item: dict) -> str:
+    suggestion = item.get("suggestion") or "无需处理。"
+    return f"- level: {item['level']} | category: {item['category']} | message: {item['message']} | suggestion: {suggestion}"
+
+
+def format_review_questions(findings: list[dict]) -> str:
+    questions = [item for item in findings if item["level"] in {"warning", "error"}]
+    if not questions:
+        return "- 暂无需要用户确认的问题。"
+    return "\n".join(f"- {item['message']}" for item in questions[:12])
+
+
+def format_review_suggestions(findings: list[dict]) -> str:
+    suggestions = []
+    for item in findings:
+        if item["level"] in {"warning", "error"} and item.get("suggestion"):
+            suggestions.append(f"- [{item['level']}] {item['suggestion']}")
+    return "\n".join(suggestions) if suggestions else "- 暂无建议修复项。"
+
+
+def format_review_todos(findings: list[dict]) -> str:
+    todos = [
+        "- 如修改正文，重新运行 `chapter-summary`。",
+        "- 如新增或调整章节文件，重新运行 `index`。",
+        "- 如改动设定、大纲、正文、人物或伏笔记录，重新运行 `build-index`。",
+        "- 如继续写下一章，重新运行 `context-pack`。",
+    ]
+    if any(item["category"] == "character" and item["level"] == "warning" for item in findings):
+        todos.append("- 检查是否需要更新 `人物状态/characters.json`。")
+    if any(item["category"] == "hook" and item["level"] == "warning" for item in findings):
+        todos.append("- 检查是否需要更新 `伏笔记录/hooks.json`。")
+    return "\n".join(todos)
+
+
+def format_raw_review_findings(findings: list[dict]) -> str:
+    return "\n".join(format_review_item(item) for item in findings)
+
+
+def find_record_by_number(records, field: str, number: int):
+    if not isinstance(records, list):
+        return None
+    for item in records:
+        if isinstance(item, dict) and item.get(field) == number:
+            return item
+    return None
+
+
+def list_value(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if item]
+    if value:
+        return [str(value)]
+    return []
+
+
+def is_empty_value(value) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, list):
+        return not value
+    return False
 
 
 def add_finding(findings: list[dict], details: dict[str, list[str]], section: str, level: str, message: str) -> None:

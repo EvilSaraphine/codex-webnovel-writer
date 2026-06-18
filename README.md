@@ -25,7 +25,7 @@ python3 scripts/webnovel.py init ../my-novel-project
 ## 功能特性
 
 - 提供 `.codex-plugin/plugin.json`，可作为本地 Codex 插件源使用。
-- 提供 10 个面向小说工作流的 Codex Skills：
+- 提供 11 个面向小说工作流的 Codex Skills：
   - `webnovel-init`：初始化小说项目目录和基础文件。
   - `webnovel-plan`：生成或修订总纲、卷纲、章节大纲和时间线。
   - `webnovel-write`：根据大纲、设定、人物状态和伏笔记录起草章节。
@@ -36,6 +36,7 @@ python3 scripts/webnovel.py init ../my-novel-project
   - `webnovel-plan-structured`：维护卷纲、章纲、时间线、人物线、场景卡和冲突线。
   - `webnovel-retrieve`：使用本地检索结果和章节上下文包辅助写作、查询和审查。
   - `webnovel-doctor`：对小说项目做只读体检，生成诊断报告和修复建议。
+  - `webnovel-review-deep`：对单章或章节范围做结构化深度审查。
 - 提供 `scripts/webnovel.py`，支持初始化项目、查看路径、结构检查、结构化规划、章节模板、章节摘要、章节索引、关键词查询、人物记录、伏笔记录、状态概览、连续性检查和审查报告模板生成。
 - 提供中文小说项目模板，使用稳定 Markdown 文件保存长期记忆。
 - 强调上下文经济：按任务读取必要文件，而不是每次加载整个小说项目。
@@ -110,6 +111,25 @@ doctor 会检查：
 
 doctor 会生成 `审查报告/doctor-report.md`，报告中列出 PASS、WARN、ERROR、风险等级和建议修复项。除生成该报告外，它不会修改正文、设定、人物、伏笔或大纲文件。
 
+## v0.7 新增能力
+
+v0.7 增加了 Review 深度审查系统。review 默认只读，不联网，不使用 API，不使用 embedding provider，不自动改正文，也不自动写回设定、人物、伏笔、大纲或章节摘要。
+
+review 会检查：
+
+- 章节结构完整性
+- 章纲对齐
+- 人物状态变化
+- 伏笔引入、推进、回收
+- 时间线连续性
+- 场景目标和冲突
+- 章节索引和章节摘要
+- 本地检索上下文
+- 设定一致性风险
+- 后续待办
+
+review 会生成 Markdown 审查报告，例如 `审查报告/第001章-deep-review.md` 和 `审查报告/review-summary-第001-第005章.md`。风格/反 AI 句式检测将在后续版本作为专项审查加入。
+
 ## 通用项目原则
 
 本仓库是通用开源工具，不是某一本小说的项目仓库。仓库中不应提交用户私人小说内容、真实作品设定、真实角色名、剧情片段、未公开文本或特定 IP 内容。
@@ -136,7 +156,8 @@ codex-webnovel-writer/
 │   ├── webnovel-chapter/
 │   ├── webnovel-plan-structured/
 │   ├── webnovel-retrieve/
-│   └── webnovel-doctor/
+│   ├── webnovel-doctor/
+│   └── webnovel-review-deep/
 ├── scripts/webnovel.py
 ├── templates/
 ├── docs/
@@ -206,6 +227,7 @@ Use webnovel-review to review 正文/第001章.md and save a report.
 Use webnovel-query to list unpaid foreshadowing before chapter 10.
 Use webnovel-retrieve to prepare a context pack for chapter 1.
 Use webnovel-doctor to inspect project health before a long writing session.
+Use webnovel-review-deep to review chapter 1 before revision.
 ```
 
 ## Skills 说明
@@ -249,6 +271,10 @@ Use webnovel-doctor to inspect project health before a long writing session.
 ### webnovel-doctor
 
 用于对小说项目做只读体检。检查范围包括项目结构、核心模板、JSON 可读性、章节索引、章节摘要、章纲与正文对应、人物状态、伏笔记录、结构化规划、本地检索索引和通用内容安全。doctor 只生成诊断和建议，不会自动修复。
+
+### webnovel-review-deep
+
+用于对单章或章节范围做结构化深度审查。检查章节结构、章纲对齐、人物状态、伏笔、时间线、场景冲突、章节索引、摘要、本地检索上下文和设定一致性风险。review 只生成诊断和建议，不会自动改正文或写回设定。
 
 ## CLI 使用
 
@@ -383,6 +409,16 @@ python3 scripts/webnovel.py doctor ../sample-novel-project --deep
 ```
 
 `--deep` 也兼容中文输入法环境中容易出现的 `–deep` 写法。
+
+v0.7 Review 深度审查示例：
+
+```bash
+python3 scripts/webnovel.py review ../sample-novel-project 1
+python3 scripts/webnovel.py review-range ../sample-novel-project 1 5
+python3 scripts/webnovel.py review-status ../sample-novel-project
+```
+
+review 会生成 Markdown 审查报告，但不会自动修改正文，也不会自动写回设定。风格/反 AI 句式检测将在后续版本作为专项审查加入。
 
 ## 后续路线
 
