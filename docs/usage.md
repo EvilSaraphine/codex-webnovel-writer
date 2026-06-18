@@ -293,3 +293,33 @@ python3 scripts/webnovel.py doctor ../sample-novel-project
 ```
 
 write-brief 和 prepare-write 都不会自动生成正文；任务书只作为写作参考。
+
+## 完整章节写作流水线
+
+推荐用 v0.9 写作流水线组织单章写作：
+
+1. 补充结构化规划，包括章纲、人物、伏笔、场景卡和时间线。
+
+2. 运行 `write`：
+
+```bash
+python3 scripts/webnovel.py write ../sample-novel-project 1
+```
+
+3. 让 Codex 阅读：
+
+- `章节索引/write-workspace/第001章-write-instruction.md`
+- `章节索引/write-briefs/第001章-write-brief.md`
+- `章节索引/context-packs/第001章-context.md`
+
+4. 让 Codex 写或修订 `正文/第001章.md`。
+
+5. 运行 `finalize-write`：
+
+```bash
+python3 scripts/webnovel.py finalize-write ../sample-novel-project 1
+```
+
+6. 查看 `审查报告/第001章-deep-review.md` 和 `审查报告/doctor-report.md`。
+
+7. 用户决定是否手动更新人物、伏笔和设定。finalize-write 不会自动修改这些状态文件。

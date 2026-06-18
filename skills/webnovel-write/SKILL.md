@@ -1,47 +1,50 @@
 ---
 name: webnovel-write
-description: Draft or revise webnovel chapters from chapter outlines, canon files, character state, foreshadowing records, and chapter index. Use when the user asks Codex to write正文, expand a chapter outline, continue a chapter, rewrite a scene, or produce an update-ready webnovel chapter.
+description: Guide Codex through the full local chapter writing workflow using write briefs, context packs, draft files, finalize checks, and review reports without calling external models or changing project state automatically.
 ---
 
 # Webnovel Write
 
-## Inputs To Inspect
+## Purpose
 
-- The requested chapter outline under `大纲/`.
-- Nearby chapter drafts under `正文/` when continuity or voice matters.
-- Relevant setting files under `设定集/`.
-- Relevant character files under `人物状态/`.
-- Relevant foreshadowing entries under `伏笔记录/`.
-- `章节索引/章节索引.md`.
+Use this Skill when the user wants Codex to write or revise a chapter after the local project has prepared the chapter workspace.
 
-## Drafting Process
+The CLI write workflow prepares materials. It does not call a model, does not access the network, and does not automatically generate full prose.正文创作 should happen only after reading the write instruction, write brief, context pack, and draft file.
 
-1. Identify chapter goal, POV, location, and ending hook.
-2. Confirm required continuity facts before writing.
-3. Draft in Chinese unless the user requests otherwise.
-4. Prioritize concrete action, scene causality, character desire, and serial-reading momentum.
-5. Preserve planned reveals and do not pay off foreshadowing early unless requested.
-6. End with a hook, reversal, decision, discovery, or unresolved pressure suitable for webnovel serialization.
+## Full Writing Workflow
 
-## Chapter Shape
+1. Run `python3 scripts/webnovel.py prepare-write <project_path> <chapter_number>` or `python3 scripts/webnovel.py write <project_path> <chapter_number>`.
+2. Read `章节索引/write-workspace/第XXX章-write-instruction.md`.
+3. Read `章节索引/write-briefs/第XXX章-write-brief.md`.
+4. Read `章节索引/context-packs/第XXX章-context.md`.
+5. Read `正文/draft-template.md` or the existing `正文/第XXX章.md` draft structure.
+6. Write or revise `正文/第XXX章.md` in Chinese unless the user requests another language.
+7. After writing, run `python3 scripts/webnovel.py finalize-write <project_path> <chapter_number>`.
+8. Review `审查报告/第XXX章-deep-review.md` and `审查报告/doctor-report.md`.
 
-Use this structure when no other format is specified:
+## Writing Rules
 
-- Title line.
-- Immediate situation or hook.
-- Escalating scene beats.
-- Mid-chapter turn.
-- Consequence or reveal.
-- Closing hook.
+- Do not invent unconfirmed settings.
+- Do not silently change canon.
+- Do not automatically edit `人物状态/characters.json`, `伏笔记录/hooks.json`, planning JSON, or setting files.
+- If the write brief says information is missing, ask the user to fill the setting instead of forcing a detail.
+- Keep chapter content aligned with the write brief, context pack, chapter plan, character state, foreshadowing records, timeline, scene cards, and conflict lines.
+- Preserve planned reveals and do not pay off foreshadowing early unless requested.
 
 ## After Writing
 
-When the chapter changes durable state, propose or apply updates to:
+After正文 changes, run:
 
-- `章节索引/章节索引.md`
-- `人物状态/`
-- `伏笔记录/`
-- `设定集/` if new canon was established.
+```bash
+python3 scripts/webnovel.py finalize-write <project_path> <chapter_number>
+```
 
-Do not silently change canon. Surface assumptions and newly introduced facts.
+finalize-write creates or refreshes the chapter summary, updates the chapter index, rebuilds local retrieval, runs deep review, and runs doctor. It does not automatically repair warnings or update character, hook, outline, or setting records.
 
+If review or doctor reports contain warnings or errors, show the user the report paths and ask which state files or prose should be updated.
+
+## Generic Content Rule
+
+This repository is a general-purpose tool. Keep examples generic and do not write private story content, real unpublished settings, real character names, plot scenes, unreleased prose, or specific IP content into this tool repository.
+
+Use placeholders such as `主角A`, `角色B`, `示例地点`, `示例伏笔`, `第一卷`, and `第001章`.

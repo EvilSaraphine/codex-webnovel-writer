@@ -46,12 +46,15 @@ TEMPLATE_FILES = [
     "大纲/planning-guide.md",
     *PLANNING_JSON_FILES,
     "正文/chapter-template.md",
+    "正文/draft-template.md",
     "章节索引/chapters.json",
     "章节索引/summary-template.md",
     "章节索引/summaries/.gitkeep",
     "章节索引/context-packs/.gitkeep",
     "章节索引/write-brief-template.md",
     "章节索引/write-briefs/.gitkeep",
+    "章节索引/write-workspace/.gitkeep",
+    "章节索引/write-workspace/write-instruction-template.md",
     "伏笔记录/hooks.json",
     "人物状态/characters.json",
     "审查报告/review-template.md",
@@ -190,6 +193,17 @@ def main() -> int:
     prepare_write_parser.add_argument("path", type=Path, help="novel project path")
     prepare_write_parser.add_argument("chapter_number", help="chapter number")
 
+    write_parser = subparsers.add_parser("write", help="prepare full chapter writing workspace")
+    write_parser.add_argument("path", type=Path, help="novel project path")
+    write_parser.add_argument("chapter_number", help="chapter number")
+
+    finalize_write_parser = subparsers.add_parser("finalize-write", help="run post-writing summary, index, review, and doctor")
+    finalize_write_parser.add_argument("path", type=Path, help="novel project path")
+    finalize_write_parser.add_argument("chapter_number", help="chapter number")
+
+    write_status_parser = subparsers.add_parser("write-status", help="show writing workflow coverage")
+    write_status_parser.add_argument("path", type=Path, help="novel project path")
+
     args = parser.parse_args()
     if args.command == "init":
         return cmd_init(args.path, args.force)
@@ -253,6 +267,12 @@ def main() -> int:
         return cmd_write_brief_status(args.path)
     if args.command == "prepare-write":
         return cmd_prepare_write(args.path, args.chapter_number)
+    if args.command == "write":
+        return cmd_write(args.path, args.chapter_number)
+    if args.command == "finalize-write":
+        return cmd_finalize_write(args.path, args.chapter_number)
+    if args.command == "write-status":
+        return cmd_write_status(args.path)
     parser.error("unknown command")
     return 2
 
@@ -1275,6 +1295,122 @@ def cmd_prepare_write(path: Path, chapter_number: str) -> int:
     return 0
 
 
+def cmd_write(path: Path, chapter_number: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    number = parse_positive_int(chapter_number, "chapter_number")
+    if number is None:
+        return 1
+
+    draft_path = ensure_write_draft(target, number)
+    steps = [
+        ("index", lambda: cmd_index(target)),
+        ("build-index", lambda: cmd_build_index(target)),
+        ("context-pack", lambda: cmd_context_pack(target, str(number))),
+        ("write-brief", lambda: cmd_write_brief(target, str(number))),
+    ]
+    for label, runner in steps:
+        print(f"Running {label}...")
+        code = runner()
+        if code != 0:
+            print(f"Error: write stopped because {label} failed.")
+            return code
+
+    instruction_path = write_instruction_path(target, number)
+    write_instruction_file(target, number)
+    print(f"Write workspace prepared: {write_workspace_dir(target)}")
+    print("Read these files before writing:")
+    print(f"- {instruction_path}")
+    print(f"- {write_brief_path(target, number)}")
+    print(f"- {context_pack_path(target, number)}")
+    print(f"- {draft_path}")
+    print("Note: write does not generate full chapter prose.")
+    return 0
+
+
+def cmd_finalize_write(path: Path, chapter_number: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    number = parse_positive_int(chapter_number, "chapter_number")
+    if number is None:
+        return 1
+    chapter_path = chapter_file_path(target, number)
+    if not chapter_path.is_file():
+        print(f"Error: missing chapter draft: {chapter_path}")
+        return 1
+    if count_words(read_text(chapter_path)) == 0:
+        print(f"Error: chapter draft is empty: {chapter_path}")
+        return 1
+
+    steps = [
+        ("chapter-summary", lambda: cmd_chapter_summary(target, str(number))),
+        ("index", lambda: cmd_index(target)),
+        ("build-index", lambda: cmd_build_index(target)),
+        ("review", lambda: cmd_deep_review(target, str(number))),
+        ("doctor", lambda: cmd_doctor(target, False)),
+    ]
+    warning_code = 0
+    for label, runner in steps:
+        print(f"Running {label}...")
+        code = runner()
+        if label in {"review", "doctor"} and code != 0:
+            warning_code = code
+            print(f"Warning: {label} reported issues. Review the generated report.")
+            continue
+        if code != 0:
+            print(f"Error: finalize-write stopped because {label} failed.")
+            return code
+
+    print("Finalize outputs:")
+    print(f"- summary: {summary_file_path(target, number)}")
+    print(f"- index: {target / '章节索引' / 'chapters.json'}")
+    print(f"- review: {deep_review_path(target, number)}")
+    print(f"- doctor: {target / '审查报告' / 'doctor-report.md'}")
+    print("Note: finalize-write does not modify character, hook, outline, or setting records.")
+    if warning_code:
+        print("Review or doctor reported warnings/errors; inspect reports before continuing.")
+    return 0
+
+
+def cmd_write_status(path: Path) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    chapter_files = find_chapter_files(target)
+    chapter_numbers = {parse_chapter_number(item) for item in chapter_files}
+    chapter_numbers.discard(None)
+    brief_numbers = file_chapter_numbers(write_brief_dir(target).glob("第*章-write-brief.md") if write_brief_dir(target).is_dir() else [])
+    pack_dir = target / "章节索引" / "context-packs"
+    pack_numbers = file_chapter_numbers(pack_dir.glob("第*章-context.md") if pack_dir.is_dir() else [])
+    review_numbers = file_chapter_numbers((target / "审查报告").glob("第*章-deep-review.md"))
+    instruction_dir = write_workspace_dir(target)
+    instructions = sorted(instruction_dir.glob("第*章-write-instruction.md")) if instruction_dir.is_dir() else []
+    latest_instruction = max(instructions, key=lambda item: item.stat().st_mtime) if instructions else None
+
+    print("Write status:")
+    print(f"- draft_chapters: {len(chapter_numbers)}")
+    print(f"- write_briefs: {len(brief_numbers)}")
+    print(f"- context_packs: {len(pack_numbers)}")
+    print(f"- deep_reviews: {len(review_numbers)}")
+    print(f"- doctor_report: {'exists' if (target / '审查报告' / 'doctor-report.md').is_file() else 'missing'}")
+    print_missing_chapters("drafts_missing_write_brief", chapter_numbers, brief_numbers)
+    print_missing_chapters("drafts_missing_context_pack", chapter_numbers, pack_numbers)
+    print_missing_chapters("drafts_missing_deep_review", chapter_numbers, review_numbers)
+    if latest_instruction:
+        print(f"- latest_write_instruction: {relative_path(target, latest_instruction)}")
+    else:
+        print("- latest_write_instruction: none")
+    return 0
+
+
 def cmd_check(path: Path) -> int:
     target = path.expanduser().resolve()
     errors: list[str] = []
@@ -1399,7 +1535,7 @@ def find_chapter_files(root: Path) -> list[Path]:
     for draft in sorted(draft_dir.glob("**/*")):
         if not draft.is_file() or draft.name.startswith("."):
             continue
-        if draft.name == "chapter-template.md":
+        if draft.name in {"chapter-template.md", "draft-template.md"}:
             continue
         if draft.suffix.lower() not in {".md", ".txt"}:
             continue
@@ -2063,8 +2199,73 @@ def write_brief_path(root: Path, chapter_number: int) -> Path:
     return write_brief_dir(root) / f"第{chapter_number:03d}章-write-brief.md"
 
 
+def write_workspace_dir(root: Path) -> Path:
+    return root / "章节索引" / "write-workspace"
+
+
+def write_instruction_path(root: Path, chapter_number: int) -> Path:
+    return write_workspace_dir(root) / f"第{chapter_number:03d}章-write-instruction.md"
+
+
 def deep_review_path(root: Path, chapter_number: int) -> Path:
     return root / "审查报告" / f"第{chapter_number:03d}章-deep-review.md"
+
+
+def ensure_write_draft(root: Path, chapter_number: int) -> Path:
+    draft_path = chapter_file_path(root, chapter_number)
+    if draft_path.exists():
+        print(f"Chapter draft exists, not overwriting: {draft_path}")
+        return draft_path
+    template_path = root / "正文" / "draft-template.md"
+    if not template_path.is_file():
+        template_path = TEMPLATE_DIR / "正文" / "draft-template.md"
+    chapter_padded = f"{chapter_number:03d}"
+    content = read_text(template_path).format(
+        chapter=chapter_number,
+        chapter_padded=chapter_padded,
+        title=f"第{chapter_padded}章",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    draft_path.write_text(content, encoding="utf-8")
+    print(f"Created chapter draft from draft-template: {draft_path}")
+    return draft_path
+
+
+def write_instruction_file(root: Path, chapter_number: int) -> Path:
+    template_path = root / "章节索引" / "write-workspace" / "write-instruction-template.md"
+    if not template_path.is_file():
+        template_path = TEMPLATE_DIR / "章节索引" / "write-workspace" / "write-instruction-template.md"
+    chapter_padded = f"{chapter_number:03d}"
+    output_path = write_instruction_path(root, chapter_number)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    content = read_text(template_path).format(
+        chapter=chapter_number,
+        chapter_number=chapter_number,
+        chapter_padded=chapter_padded,
+        entry=f"正文/第{chapter_padded}章.md",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        write_brief_path=relative_path(root, write_brief_path(root, chapter_number)),
+        context_pack_path=relative_path(root, context_pack_path(root, chapter_number)),
+        chapter_plan_path="大纲/chapter_plans.json",
+        draft_path=relative_path(root, chapter_file_path(root, chapter_number)),
+        project_path=root,
+    )
+    output_path.write_text(content, encoding="utf-8")
+    return output_path
+
+
+def file_chapter_numbers(paths) -> set[int]:
+    numbers = {parse_chapter_number(path) for path in paths}
+    numbers.discard(None)
+    return {number for number in numbers if isinstance(number, int)}
+
+
+def print_missing_chapters(label: str, all_numbers: set[int], existing_numbers: set[int]) -> None:
+    missing = sorted(number for number in all_numbers if number not in existing_numbers)
+    print(f"- {label}: {len(missing)}")
+    for number in missing:
+        print(f"  - 第{number:03d}章")
 
 
 def read_write_brief_template(root: Path) -> str:
@@ -2425,7 +2626,7 @@ def doctor_scan_chapter_candidates(root: Path) -> tuple[list[Path], list[Path]]:
     for draft in sorted(draft_dir.glob("**/*")):
         if not draft.is_file() or draft.name.startswith("."):
             continue
-        if draft.name == "chapter-template.md":
+        if draft.name in {"chapter-template.md", "draft-template.md"}:
             continue
         if draft.suffix.lower() not in {".md", ".txt"}:
             continue
