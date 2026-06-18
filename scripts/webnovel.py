@@ -29,6 +29,7 @@ SKILLS = [
     "webnovel-retrieve",
     "webnovel-doctor",
     "webnovel-review-deep",
+    "webnovel-write-brief",
 ]
 PLANNING_JSON_FILES = [
     "大纲/volumes.json",
@@ -49,6 +50,8 @@ TEMPLATE_FILES = [
     "章节索引/summary-template.md",
     "章节索引/summaries/.gitkeep",
     "章节索引/context-packs/.gitkeep",
+    "章节索引/write-brief-template.md",
+    "章节索引/write-briefs/.gitkeep",
     "伏笔记录/hooks.json",
     "人物状态/characters.json",
     "审查报告/review-template.md",
@@ -176,6 +179,17 @@ def main() -> int:
     review_status_parser = subparsers.add_parser("review-status", help="show deep review report coverage")
     review_status_parser.add_argument("path", type=Path, help="novel project path")
 
+    write_brief_parser = subparsers.add_parser("write-brief", help="generate a chapter writing task brief")
+    write_brief_parser.add_argument("path", type=Path, help="novel project path")
+    write_brief_parser.add_argument("chapter_number", help="chapter number")
+
+    write_brief_status_parser = subparsers.add_parser("write-brief-status", help="show write brief coverage")
+    write_brief_status_parser.add_argument("path", type=Path, help="novel project path")
+
+    prepare_write_parser = subparsers.add_parser("prepare-write", help="prepare index, context pack, and write brief before drafting")
+    prepare_write_parser.add_argument("path", type=Path, help="novel project path")
+    prepare_write_parser.add_argument("chapter_number", help="chapter number")
+
     args = parser.parse_args()
     if args.command == "init":
         return cmd_init(args.path, args.force)
@@ -233,6 +247,12 @@ def main() -> int:
         return cmd_review_range(args.path, args.start_chapter, args.end_chapter)
     if args.command == "review-status":
         return cmd_review_status(args.path)
+    if args.command == "write-brief":
+        return cmd_write_brief(args.path, args.chapter_number)
+    if args.command == "write-brief-status":
+        return cmd_write_brief_status(args.path)
+    if args.command == "prepare-write":
+        return cmd_prepare_write(args.path, args.chapter_number)
     parser.error("unknown command")
     return 2
 
@@ -1179,6 +1199,82 @@ def cmd_review_status(path: Path) -> int:
     return 0
 
 
+def cmd_write_brief(path: Path, chapter_number: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    number = parse_positive_int(chapter_number, "chapter_number")
+    if number is None:
+        return 1
+    output_path = write_chapter_brief(target, number)
+    print(f"Write brief written: {output_path}")
+    return 0
+
+
+def cmd_write_brief_status(path: Path) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+
+    brief_dir = write_brief_dir(target)
+    briefs = sorted(brief_dir.glob("第*章-write-brief.md")) if brief_dir.is_dir() else []
+    draft_numbers = {parse_chapter_number(item) for item in find_chapter_files(target)}
+    draft_numbers.discard(None)
+    chapter_plans = safe_load_json_array(target / "大纲" / "chapter_plans.json")
+    plan_numbers = {item.get("chapter_number") for item in chapter_plans if isinstance(item, dict)}
+    brief_numbers = {parse_chapter_number(item) for item in briefs}
+    brief_numbers.discard(None)
+    missing_drafts = sorted(number for number in draft_numbers if number not in brief_numbers)
+    missing_plans = sorted(number for number in plan_numbers if isinstance(number, int) and number not in brief_numbers)
+    latest = max(briefs, key=lambda item: item.stat().st_mtime) if briefs else None
+
+    print("Write brief status:")
+    print(f"- brief_dir: {brief_dir}")
+    print(f"- write_briefs: {len(briefs)}")
+    print(f"- draft_chapters_missing_write_brief: {len(missing_drafts)}")
+    for number in missing_drafts:
+        print(f"  - 第{number:03d}章")
+    print(f"- chapter_plans_missing_write_brief: {len(missing_plans)}")
+    for number in missing_plans:
+        print(f"  - 第{number:03d}章")
+    if latest:
+        print(f"- latest_write_brief: {relative_path(target, latest)}")
+    else:
+        print("- latest_write_brief: none")
+    return 0
+
+
+def cmd_prepare_write(path: Path, chapter_number: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    number = parse_positive_int(chapter_number, "chapter_number")
+    if number is None:
+        return 1
+
+    steps = [
+        ("index", lambda: cmd_index(target)),
+        ("build-index", lambda: cmd_build_index(target)),
+        ("context-pack", lambda: cmd_context_pack(target, str(number))),
+        ("write-brief", lambda: cmd_write_brief(target, str(number))),
+    ]
+    for label, runner in steps:
+        print(f"Running {label}...")
+        code = runner()
+        if code != 0:
+            print(f"Error: prepare-write stopped because {label} failed.")
+            return code
+    print(f"Prepared write brief: {write_brief_path(target, number)}")
+    print("Note: prepare-write does not generate or modify chapter prose.")
+    return 0
+
+
 def cmd_check(path: Path) -> int:
     target = path.expanduser().resolve()
     errors: list[str] = []
@@ -1885,6 +1981,347 @@ def is_empty_value(value) -> bool:
     if isinstance(value, list):
         return not value
     return False
+
+
+def write_chapter_brief(root: Path, chapter_number: int) -> Path:
+    chapter_plans = safe_load_json_array(root / "大纲" / "chapter_plans.json")
+    volumes = safe_load_json_array(root / "大纲" / "volumes.json")
+    characters = safe_load_json_array(root / "人物状态" / "characters.json")
+    hooks = safe_load_json_array(root / "伏笔记录" / "hooks.json")
+    timeline = safe_load_json_array(root / "大纲" / "timeline.json")
+    scenes = safe_load_json_array(root / "大纲" / "scenes.json")
+    conflicts = safe_load_json_array(root / "大纲" / "conflicts.json")
+
+    chapter_plan = find_record_by_number(chapter_plans, "chapter_number", chapter_number)
+    volume = find_write_brief_volume(volumes, chapter_plan)
+    chapter_padded = f"{chapter_number:03d}"
+    output_path = write_brief_path(root, chapter_number)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    template = read_write_brief_template(root)
+
+    planned_character_names = list_value(chapter_plan.get("characters")) if isinstance(chapter_plan, dict) else []
+    relevant_characters = select_brief_characters(characters, planned_character_names)
+    chapter_events = select_records_by_chapter(timeline, chapter_number)
+    chapter_scenes = sorted(select_records_by_chapter(scenes, chapter_number), key=lambda item: item.get("scene_order") or 0)
+    active_conflicts = select_active_conflicts(conflicts)
+    open_hooks = select_open_hooks(hooks)
+
+    context_path = context_pack_path(root, chapter_number)
+    review_path = deep_review_path(root, chapter_number)
+    summary_path = summary_file_path(root, chapter_number)
+    chapter_path = chapter_file_path(root, chapter_number)
+
+    missing_notes = []
+    if chapter_plan is None:
+        missing_notes.append("缺少章纲：请补充 `大纲/chapter_plans.json` 中对应章节。")
+    if not context_path.is_file():
+        missing_notes.append("缺少 context-pack：建议运行 `context-pack`。")
+    if not review_path.is_file():
+        missing_notes.append("缺少 deep-review：写后建议运行 `review`。")
+
+    report = template.format(
+        chapter_padded=chapter_padded,
+        brief_target=f"第{chapter_padded}章",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        basic_info=build_brief_basic_info(root, chapter_number, chapter_plan, volume, chapter_path, summary_path, context_path, review_path),
+        chapter_goal=brief_value(chapter_plan.get("goal") if isinstance(chapter_plan, dict) else "", "暂无章纲目标，建议补充。"),
+        chapter_plan=build_brief_chapter_plan(chapter_plan),
+        planned_characters=format_brief_list(planned_character_names, "章纲未指定出场人物。"),
+        character_state=build_brief_character_state(relevant_characters),
+        hook_tasks=build_brief_hook_tasks(chapter_plan, open_hooks),
+        timeline_position=build_brief_timeline(chapter_events),
+        scene_cards=build_brief_scenes(chapter_scenes),
+        conflict_lines=build_brief_conflicts(active_conflicts),
+        retrieval_context=build_brief_context(root, context_path),
+        review_issues=build_brief_review_issues(root, review_path),
+        writing_constraints=build_brief_constraints(),
+        do_not_invent=build_brief_do_not_invent(missing_notes),
+        post_write_todos=build_brief_post_write_todos(),
+        user_questions=build_brief_user_questions(missing_notes, chapter_plan, chapter_events, chapter_scenes, active_conflicts),
+    )
+    output_path.write_text(report, encoding="utf-8")
+    for note in missing_notes:
+        print(f"Warning: {note}")
+    return output_path
+
+
+def safe_load_json_array(path: Path) -> list:
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    return data if isinstance(data, list) else []
+
+
+def write_brief_dir(root: Path) -> Path:
+    return root / "章节索引" / "write-briefs"
+
+
+def write_brief_path(root: Path, chapter_number: int) -> Path:
+    return write_brief_dir(root) / f"第{chapter_number:03d}章-write-brief.md"
+
+
+def deep_review_path(root: Path, chapter_number: int) -> Path:
+    return root / "审查报告" / f"第{chapter_number:03d}章-deep-review.md"
+
+
+def read_write_brief_template(root: Path) -> str:
+    project_template = root / "章节索引" / "write-brief-template.md"
+    if project_template.is_file():
+        return read_text(project_template)
+    return read_text(TEMPLATE_DIR / "章节索引" / "write-brief-template.md")
+
+
+def find_write_brief_volume(volumes: list, chapter_plan) -> dict | None:
+    if not isinstance(chapter_plan, dict):
+        return volumes[0] if len(volumes) == 1 and isinstance(volumes[0], dict) else None
+    volume_number = chapter_plan.get("volume_number")
+    for item in volumes:
+        if isinstance(item, dict) and item.get("volume_number") == volume_number:
+            return item
+    return volumes[0] if len(volumes) == 1 and isinstance(volumes[0], dict) else None
+
+
+def select_brief_characters(characters: list, planned_names: list[str]) -> list[dict]:
+    records = [item for item in characters if isinstance(item, dict)]
+    if not planned_names:
+        return records
+    planned = set(planned_names)
+    return [item for item in records if item.get("name") in planned]
+
+
+def select_records_by_chapter(records: list, chapter_number: int) -> list[dict]:
+    return [item for item in records if isinstance(item, dict) and item.get("chapter_number") == chapter_number]
+
+
+def select_active_conflicts(conflicts: list) -> list[dict]:
+    active_status = {"active", "open", "pending", "进行中", "开启", "未解决"}
+    return [
+        item
+        for item in conflicts
+        if isinstance(item, dict) and str(item.get("status", "")).lower() in active_status
+    ]
+
+
+def select_open_hooks(hooks: list) -> list[dict]:
+    open_status = {"open", "active", "pending", "进行中", "未解决"}
+    return [
+        item
+        for item in hooks
+        if isinstance(item, dict) and str(item.get("status", "")).lower() in open_status
+    ]
+
+
+def build_brief_basic_info(
+    root: Path,
+    chapter_number: int,
+    chapter_plan,
+    volume,
+    chapter_path: Path,
+    summary_path: Path,
+    context_path: Path,
+    review_path: Path,
+) -> str:
+    title = chapter_plan.get("title") if isinstance(chapter_plan, dict) else f"第{chapter_number:03d}章"
+    volume_label = "-"
+    if isinstance(volume, dict):
+        volume_label = f"第{volume.get('volume_number')}卷 {volume.get('title') or ''}".strip()
+    return "\n".join(
+        [
+            f"- 章节号：{chapter_number}",
+            f"- 章节标题：{title or '-'}",
+            f"- 所属卷：{volume_label}",
+            f"- 正文路径：{relative_path(root, chapter_path)}",
+            f"- 摘要路径：{relative_path(root, summary_path)}",
+            f"- context-pack 路径：{relative_path(root, context_path)}",
+            f"- deep-review 路径：{relative_path(root, review_path)}",
+        ]
+    )
+
+
+def build_brief_chapter_plan(chapter_plan) -> str:
+    if not isinstance(chapter_plan, dict):
+        return "- 缺少对应章纲。请先补充 `大纲/chapter_plans.json`。"
+    return "\n".join(
+        [
+            f"- goal：{chapter_plan.get('goal') or '-'}",
+            f"- pov：{chapter_plan.get('pov') or '-'}",
+            f"- conflict：{chapter_plan.get('conflict') or '-'}",
+            f"- ending_hook：{chapter_plan.get('ending_hook') or '-'}",
+            f"- status：{chapter_plan.get('status') or '-'}",
+            f"- notes：{chapter_plan.get('notes') or '-'}",
+        ]
+    )
+
+
+def build_brief_character_state(characters: list[dict]) -> str:
+    if not characters:
+        return "- 暂无人物状态记录，建议补充。"
+    lines = []
+    for item in characters:
+        lines.append(
+            f"- {item.get('name') or '-'} | role: {item.get('role') or '-'} | status: {item.get('status') or '-'} | "
+            f"last_seen_chapter: {item.get('last_seen_chapter')} | notes: {item.get('notes') or '-'}"
+        )
+    return "\n".join(lines)
+
+
+def build_brief_hook_tasks(chapter_plan, open_hooks: list[dict]) -> str:
+    lines = []
+    if isinstance(chapter_plan, dict):
+        lines.append(f"- 引入：{format_inline_list(chapter_plan.get('hooks_to_introduce'))}")
+        lines.append(f"- 推进：{format_inline_list(chapter_plan.get('hooks_to_advance'))}")
+        lines.append(f"- 回收：{format_inline_list(chapter_plan.get('hooks_to_resolve'))}")
+    else:
+        lines.append("- 章纲缺失，暂无章纲伏笔任务。")
+    lines.append("")
+    lines.append("### open/active/pending 伏笔")
+    if not open_hooks:
+        lines.append("- 暂无记录，建议补充。")
+    for item in open_hooks:
+        lines.append(
+            f"- {item.get('title') or '-'} | status: {item.get('status') or '-'} | introduced_in: {item.get('introduced_in')} | "
+            f"related_characters: {format_inline_list(item.get('related_characters'))} | notes: {item.get('notes') or '-'}"
+        )
+    return "\n".join(lines)
+
+
+def build_brief_timeline(events: list[dict]) -> str:
+    if not events:
+        return "- 当前章节暂无 timeline event，建议补时间线。"
+    lines = []
+    for item in events:
+        lines.append(
+            f"- order: {item.get('order')} | time: {item.get('time_label') or '-'} | event: {item.get('event') or '-'} | "
+            f"location: {item.get('location') or '-'} | consequences: {item.get('consequences') or '-'}"
+        )
+    return "\n".join(lines)
+
+
+def build_brief_scenes(scenes: list[dict]) -> str:
+    if not scenes:
+        return "- 当前章节暂无场景卡，建议补充。"
+    lines = []
+    for item in scenes:
+        lines.append(
+            f"- scene: {item.get('scene_id') or '-'} | order: {item.get('scene_order')} | location: {item.get('location') or '-'} | "
+            f"characters: {format_inline_list(item.get('characters'))} | purpose: {item.get('purpose') or '-'} | "
+            f"conflict: {item.get('conflict') or '-'} | outcome: {item.get('outcome') or '-'} | hooks: {format_inline_list(item.get('hooks'))}"
+        )
+    return "\n".join(lines)
+
+
+def build_brief_conflicts(conflicts: list[dict]) -> str:
+    if not conflicts:
+        return "- 暂无 active/open 冲突线，建议补充冲突线。"
+    lines = []
+    for item in conflicts:
+        lines.append(
+            f"- {item.get('conflict_id') or '-'} | title: {item.get('title') or '-'} | type: {item.get('conflict_type') or '-'} | "
+            f"status: {item.get('status') or '-'} | stakes: {item.get('stakes') or '-'} | notes: {item.get('notes') or '-'}"
+        )
+    return "\n".join(lines)
+
+
+def build_brief_context(root: Path, context_path: Path) -> str:
+    if not context_path.is_file():
+        return f"- context-pack 不存在：{relative_path(root, context_path)}\n- 建议运行 `context-pack`。"
+    text = read_text(context_path)
+    excerpt = excerpt_markdown(text, ["## 章纲摘要", "## 相关设定片段", "## 相关人物/伏笔/时间线片段"], 1200)
+    return f"- 已读取：{relative_path(root, context_path)}\n\n{excerpt}"
+
+
+def build_brief_review_issues(root: Path, review_path: Path) -> str:
+    if not review_path.is_file():
+        return f"- deep-review 不存在：{relative_path(root, review_path)}\n- 建议写后运行 `review`。"
+    lines = []
+    for line in read_text(review_path).splitlines():
+        if "level: warning" in line or "level: error" in line or "[warning]" in line or "[error]" in line:
+            lines.append(line)
+    if not lines:
+        lines.append("- 未摘录到 warning/error。")
+    return f"- 已读取：{relative_path(root, review_path)}\n\n" + "\n".join(lines[:20])
+
+
+def build_brief_constraints() -> str:
+    return "\n".join(
+        [
+            "- 不要自动改设定。",
+            "- 不要把推测写成事实。",
+            "- 不要跳过人物状态变化。",
+            "- 不要忽略未解决伏笔。",
+            "- 不要和章纲目标冲突。",
+            "- 任务书内容只能作为写作参考，不应被当成新设定自动写回。",
+        ]
+    )
+
+
+def build_brief_do_not_invent(notes: list[str]) -> str:
+    lines = [
+        "- 未在设定、章纲、人物状态、伏笔记录、时间线或场景卡中确认的信息。",
+        "- 角色未确认的动机、关系、秘密、资源和伤势。",
+        "- 未记录的世界规则、地点规则、能力代价或组织设定。",
+    ]
+    lines.extend(f"- {note}" for note in notes)
+    return "\n".join(lines)
+
+
+def build_brief_post_write_todos() -> str:
+    return "\n".join(
+        [
+            "- `python3 scripts/webnovel.py chapter-summary <project_path> <chapter_number>`",
+            "- `python3 scripts/webnovel.py index <project_path>`",
+            "- `python3 scripts/webnovel.py build-index <project_path>`",
+            "- `python3 scripts/webnovel.py review <project_path> <chapter_number>`",
+            "- `python3 scripts/webnovel.py doctor <project_path>`",
+        ]
+    )
+
+
+def build_brief_user_questions(notes: list[str], chapter_plan, events: list[dict], scenes: list[dict], conflicts: list[dict]) -> str:
+    questions = []
+    if not isinstance(chapter_plan, dict):
+        questions.append("- 本章章纲是否需要先补齐？")
+    elif is_empty_value(chapter_plan.get("goal")):
+        questions.append("- 本章明确目标是什么？")
+    if not events:
+        questions.append("- 本章是否需要加入时间线事件？")
+    if not scenes:
+        questions.append("- 本章是否需要拆分场景卡？")
+    if not conflicts:
+        questions.append("- 本章要承接哪条 active/open 冲突线？")
+    questions.extend(f"- {note}" for note in notes)
+    return "\n".join(questions) if questions else "- 暂无必须确认的问题。"
+
+
+def brief_value(value, fallback: str) -> str:
+    if isinstance(value, str) and value.strip():
+        return value
+    return fallback
+
+
+def format_brief_list(items: list[str], empty_text: str) -> str:
+    if not items:
+        return f"- {empty_text}"
+    return "\n".join(f"- {item}" for item in items)
+
+
+def excerpt_markdown(text: str, headings: list[str], limit: int) -> str:
+    lines = []
+    include = False
+    for line in text.splitlines():
+        if any(line.startswith(heading) for heading in headings):
+            include = True
+        elif line.startswith("## ") and include:
+            include = False
+        if include:
+            lines.append(line)
+    excerpt = "\n".join(lines).strip() or "\n".join(text.splitlines()[:30]).strip()
+    if len(excerpt) > limit:
+        return excerpt[:limit].rstrip() + "\n..."
+    return excerpt or "- 暂无可摘录内容。"
 
 
 def add_finding(findings: list[dict], details: dict[str, list[str]], section: str, level: str, message: str) -> None:

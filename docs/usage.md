@@ -265,3 +265,31 @@ python3 scripts/webnovel.py review ../sample-novel-project 1
 7. 查看 `审查报告/第001章-deep-review.md`。
 
 8. 用户自行决定是否修改正文或更新状态文件。review 只给诊断和建议，不会自动修复。
+
+## 写作任务书工作流
+
+推荐在正式写正文前生成写作任务书：
+
+1. 补章纲、人物、伏笔、场景卡、时间线。
+
+2. 运行 `prepare-write`：
+
+```bash
+python3 scripts/webnovel.py prepare-write ../sample-novel-project 1
+```
+
+3. 阅读 `章节索引/write-briefs/第001章-write-brief.md`。
+
+4. 让 Codex 根据任务书写或修订 `正文/第001章.md`。
+
+5. 写完后运行：
+
+```bash
+python3 scripts/webnovel.py chapter-summary ../sample-novel-project 1
+python3 scripts/webnovel.py index ../sample-novel-project
+python3 scripts/webnovel.py build-index ../sample-novel-project
+python3 scripts/webnovel.py review ../sample-novel-project 1
+python3 scripts/webnovel.py doctor ../sample-novel-project
+```
+
+write-brief 和 prepare-write 都不会自动生成正文；任务书只作为写作参考。

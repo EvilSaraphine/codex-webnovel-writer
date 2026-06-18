@@ -25,7 +25,7 @@ python3 scripts/webnovel.py init ../my-novel-project
 ## 功能特性
 
 - 提供 `.codex-plugin/plugin.json`，可作为本地 Codex 插件源使用。
-- 提供 11 个面向小说工作流的 Codex Skills：
+- 提供 12 个面向小说工作流的 Codex Skills：
   - `webnovel-init`：初始化小说项目目录和基础文件。
   - `webnovel-plan`：生成或修订总纲、卷纲、章节大纲和时间线。
   - `webnovel-write`：根据大纲、设定、人物状态和伏笔记录起草章节。
@@ -37,6 +37,7 @@ python3 scripts/webnovel.py init ../my-novel-project
   - `webnovel-retrieve`：使用本地检索结果和章节上下文包辅助写作、查询和审查。
   - `webnovel-doctor`：对小说项目做只读体检，生成诊断报告和修复建议。
   - `webnovel-review-deep`：对单章或章节范围做结构化深度审查。
+  - `webnovel-write-brief`：生成章节写作前任务书，辅助用户或 Codex 准备正文创作。
 - 提供 `scripts/webnovel.py`，支持初始化项目、查看路径、结构检查、结构化规划、章节模板、章节摘要、章节索引、关键词查询、人物记录、伏笔记录、状态概览、连续性检查和审查报告模板生成。
 - 提供中文小说项目模板，使用稳定 Markdown 文件保存长期记忆。
 - 强调上下文经济：按任务读取必要文件，而不是每次加载整个小说项目。
@@ -130,6 +131,24 @@ review 会检查：
 
 review 会生成 Markdown 审查报告，例如 `审查报告/第001章-deep-review.md` 和 `审查报告/review-summary-第001-第005章.md`。风格/反 AI 句式检测将在后续版本作为专项审查加入。
 
+## v0.8 新增能力
+
+v0.8 增加了 Write Task Brief / 写作任务书系统。write-brief 只生成写作前任务书，不自动写正文，不自动修改人物、伏笔、大纲、设定或正文。
+
+写作任务书会汇总：
+
+- 章纲和卷纲
+- 人物状态
+- 伏笔任务
+- 时间线
+- 场景卡
+- 冲突线
+- 本地检索 context-pack
+- 历史 deep review 问题
+- 写作约束和写后待办
+
+`prepare-write` 会准备索引、context-pack 和任务书，但同样不会生成正文。正文创作应由用户或 Codex 在阅读任务书后完成。
+
 ## 通用项目原则
 
 本仓库是通用开源工具，不是某一本小说的项目仓库。仓库中不应提交用户私人小说内容、真实作品设定、真实角色名、剧情片段、未公开文本或特定 IP 内容。
@@ -157,7 +176,8 @@ codex-webnovel-writer/
 │   ├── webnovel-plan-structured/
 │   ├── webnovel-retrieve/
 │   ├── webnovel-doctor/
-│   └── webnovel-review-deep/
+│   ├── webnovel-review-deep/
+│   └── webnovel-write-brief/
 ├── scripts/webnovel.py
 ├── templates/
 ├── docs/
@@ -228,6 +248,7 @@ Use webnovel-query to list unpaid foreshadowing before chapter 10.
 Use webnovel-retrieve to prepare a context pack for chapter 1.
 Use webnovel-doctor to inspect project health before a long writing session.
 Use webnovel-review-deep to review chapter 1 before revision.
+Use webnovel-write-brief to prepare chapter 1 before drafting.
 ```
 
 ## Skills 说明
@@ -275,6 +296,10 @@ Use webnovel-review-deep to review chapter 1 before revision.
 ### webnovel-review-deep
 
 用于对单章或章节范围做结构化深度审查。检查章节结构、章纲对齐、人物状态、伏笔、时间线、场景冲突、章节索引、摘要、本地检索上下文和设定一致性风险。review 只生成诊断和建议，不会自动改正文或写回设定。
+
+### webnovel-write-brief
+
+用于生成章节写作前任务书。任务书汇总章纲、人物、伏笔、时间线、场景卡、冲突线、context-pack、历史 review 和写作提醒。write-brief 不生成正文，也不自动写回设定。
 
 ## CLI 使用
 
@@ -419,6 +444,16 @@ python3 scripts/webnovel.py review-status ../sample-novel-project
 ```
 
 review 会生成 Markdown 审查报告，但不会自动修改正文，也不会自动写回设定。风格/反 AI 句式检测将在后续版本作为专项审查加入。
+
+v0.8 Write Task Brief 示例：
+
+```bash
+python3 scripts/webnovel.py write-brief ../sample-novel-project 1
+python3 scripts/webnovel.py write-brief-status ../sample-novel-project
+python3 scripts/webnovel.py prepare-write ../sample-novel-project 1
+```
+
+write-brief 只生成写作任务书，不自动写正文。prepare-write 会准备索引、context-pack 和任务书，但不生成正文。正文创作应由用户或 Codex 在阅读任务书后完成。
 
 ## 后续路线
 
