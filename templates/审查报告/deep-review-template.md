@@ -48,6 +48,12 @@
 
 {setting_risk_check}
 
+## 风格与 AI 句式风险
+
+- 本报告不自动调用 style-check。
+- 详细检测请单独运行：`python3 scripts/webnovel.py style-check <project_path> 正文/第{chapter_padded}章.md`
+- style-check 只生成风格风险报告，不自动修改正文；命中结果需要人工结合上下文确认。
+
 ## 需要用户确认的问题
 
 {questions}

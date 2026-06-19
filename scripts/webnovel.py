@@ -30,6 +30,7 @@ SKILLS = [
     "webnovel-doctor",
     "webnovel-review-deep",
     "webnovel-write-brief",
+    "webnovel-style-check",
 ]
 PLANNING_JSON_FILES = [
     "大纲/volumes.json",
@@ -43,6 +44,7 @@ TEMPLATE_FILES = [
     "AGENTS.md",
     "设定集/写作偏好.md",
     "设定集/风格禁区.md",
+    "设定集/AI句式禁区.md",
     "大纲/planning-guide.md",
     *PLANNING_JSON_FILES,
     "正文/chapter-template.md",
@@ -61,6 +63,7 @@ TEMPLATE_FILES = [
     "审查报告/continuity-report-template.md",
     "审查报告/doctor-report-template.md",
     "审查报告/deep-review-template.md",
+    "审查报告/style-report-template.md",
     "审查报告/review-summary-template.md",
     ".webnovel/.gitkeep",
     ".webnovel/retrieval-config.json",
@@ -68,6 +71,109 @@ TEMPLATE_FILES = [
 SEARCH_DIRS = ["设定集", "大纲", "正文", "伏笔记录", "人物状态", "章节索引"]
 SUPPORTED_RETRIEVAL_SUFFIXES = {".md", ".txt", ".json"}
 DOCTOR_SAFETY_TERMS = ["KpopNovel", "韩娱", "TWICE", "林予安", "崔道允", "三点十七", "精神科", "财阀"]
+STYLE_RULES = [
+    {
+        "category": "总结式判断句",
+        "level": "high",
+        "patterns": [
+            "这对他没用",
+            "这对她没用",
+            "他太熟悉",
+            "她太熟悉",
+            "从这一刻开始",
+            "一切都变了",
+            "关系开始改变",
+            "真正意识到",
+            "终于明白",
+            "他知道自己",
+            "她知道自己",
+        ],
+        "reason": "句子直接替读者总结人物变化、关系变化或情绪结论，容易像旁白式概括。",
+        "suggestion": "改写",
+        "rewrite_direction": "用一个动作、停顿、对话或场景细节替代总结，保留读者自行判断的空间。",
+    },
+    {
+        "category": "“不是……而是……”式假深刻表达",
+        "level": "high",
+        "patterns": [r"不是.+而是", r"这不是.+而是", r"那不是.+而是"],
+        "reason": "对称结构容易制造预设的深刻感，把复杂心理压成一句结论。",
+        "suggestion": "弱化",
+        "rewrite_direction": "拆成具体行为和后果，或用人物回应承载含义，避免机械对称。",
+    },
+    {
+        "category": "过度完整的主题句",
+        "level": "medium",
+        "patterns": ["他只是", "她只是", "完整到", "有些沉默", "有些答案", "比告白更", "迟来的", "最后的体面"],
+        "reason": "句子像章节主题说明，容易把正文写成提纲式主旨。",
+        "suggestion": "弱化",
+        "rewrite_direction": "把主题压回动作、物件、未说出口的话或人物选择。",
+    },
+    {
+        "category": "抽象心理分析",
+        "level": "medium",
+        "patterns": ["防御机制", "创伤", "情绪反弹", "内心深处", "渴望被理解", "无法接受亲密", "长期压抑", "投射", "依恋", "控制欲"],
+        "reason": "心理学或抽象概念直接解释人物，容易变成说明书式分析。",
+        "suggestion": "改写",
+        "rewrite_direction": "把心理分析拆成身体反应、回避动作、选择和代价。",
+    },
+    {
+        "category": "机械转折句",
+        "level": "high",
+        "patterns": ["然而事情并没有", "但他不知道的是", "但她不知道的是", "命运早已", "真正的风暴", "才刚刚开始", "悄然改变", "齿轮开始转动"],
+        "reason": "转折由模板化旁白完成，容易像预告片或剧情梗概。",
+        "suggestion": "删除",
+        "rewrite_direction": "让新信息直接进入场景，用异常细节、动作或对话完成转折。",
+    },
+    {
+        "category": "抽象名词堆叠",
+        "level": "low",
+        "patterns": ["距离感", "破碎感", "宿命感", "边界感", "控制感", "安全感", "压迫感", "复杂情绪", "某种意义上", "无法言说", "真正的答案"],
+        "reason": "抽象名词会削弱画面感，密集出现时尤其像概念化表达。",
+        "suggestion": "弱化",
+        "rewrite_direction": "用具体场景、动作、声音、物件状态替代抽象名词。",
+    },
+    {
+        "category": "说明书式人物介绍",
+        "level": "medium",
+        "patterns": ["他是一个", "她是一个", "看似", "其实比任何人都", "从小就习惯", "她的强大来自", "他的温柔不是", "极度自律"],
+        "reason": "一次性解释人物性格、经历和动机，容易像人物设定说明。",
+        "suggestion": "改写",
+        "rewrite_direction": "用人物正在做的选择证明性格，把介绍分散到多个场景。",
+    },
+    {
+        "category": "章末强行升华",
+        "level": "high",
+        "patterns": ["这只是开始", "一切都不一样了", "藏在沉默里", "命运的齿轮", "早已注定", "终于开始转动"],
+        "reason": "用命运、开始、注定等词拔高结尾，容易压掉场景余味。",
+        "suggestion": "删除",
+        "rewrite_direction": "让章节停在动作、物件、对话或未完成的选择上。",
+    },
+    {
+        "category": "过度因果归纳",
+        "level": "medium",
+        "patterns": ["所以他", "所以她", "也正因为如此", "这一切都源于", "这也解释了", "正因如此"],
+        "reason": "直接替读者归纳因果，容易让叙述像分析报告。",
+        "suggestion": "弱化",
+        "rewrite_direction": "把因果解释藏进人物行为，只写眼前决定和可见代价。",
+    },
+    {
+        "category": "过度金句化表达",
+        "level": "medium",
+        "patterns": ["比真相更", "比沉默更", "比告白更", "最接近真相", "最后一层防线", "迟来的审判"],
+        "reason": "句子追求摘抄感，可能让语气压过人物和场景。",
+        "suggestion": "弱化",
+        "rewrite_direction": "降低修辞密度，改成更贴近人物口吻或具体场景的表达。",
+    },
+    {
+        "category": "翻译腔和说明腔",
+        "level": "medium",
+        "patterns": ["某种程度上", "从某种意义上来说", "这意味着", "这代表着", "这说明", "显然", "毫无疑问"],
+        "reason": "说明性短语会让小说叙述接近论文、报告或翻译腔。",
+        "suggestion": "删除",
+        "rewrite_direction": "删除说明性连接，直接进入动作、对话或场景结果。",
+    },
+]
+METAPHOR_TERMS = ["像是", "仿佛", "好像", "像一场", "像某种"]
 
 
 def main() -> int:
@@ -204,6 +310,18 @@ def main() -> int:
     write_status_parser = subparsers.add_parser("write-status", help="show writing workflow coverage")
     write_status_parser.add_argument("path", type=Path, help="novel project path")
 
+    style_rules_parser = subparsers.add_parser("style-rules", help="show or create AI phrasing rule file")
+    style_rules_parser.add_argument("path", type=Path, help="novel project path")
+
+    style_check_parser = subparsers.add_parser("style-check", help="check a chapter for AI-flavored phrasing risks")
+    style_check_parser.add_argument("path", type=Path, help="novel project path")
+    style_check_parser.add_argument("chapter_file", type=Path, help="chapter file path relative to project path")
+
+    style_range_parser = subparsers.add_parser("style-check-range", help="run style-check for a chapter range")
+    style_range_parser.add_argument("path", type=Path, help="novel project path")
+    style_range_parser.add_argument("start_chapter", help="start chapter number")
+    style_range_parser.add_argument("end_chapter", help="end chapter number")
+
     args = parser.parse_args()
     if args.command == "init":
         return cmd_init(args.path, args.force)
@@ -273,6 +391,12 @@ def main() -> int:
         return cmd_finalize_write(args.path, args.chapter_number)
     if args.command == "write-status":
         return cmd_write_status(args.path)
+    if args.command == "style-rules":
+        return cmd_style_rules(args.path)
+    if args.command == "style-check":
+        return cmd_style_check(args.path, args.chapter_file)
+    if args.command == "style-check-range":
+        return cmd_style_check_range(args.path, args.start_chapter, args.end_chapter)
     parser.error("unknown command")
     return 2
 
@@ -1411,6 +1535,82 @@ def cmd_write_status(path: Path) -> int:
     return 0
 
 
+def cmd_style_rules(path: Path) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    rules_path, created = ensure_style_rules_file(target)
+    if rules_path is None:
+        return 1
+    print(f"AI style rules file: {rules_path}")
+    print(f"- status: {'created from template' if created else 'exists'}")
+    print("\nBuilt-in rule categories:")
+    for category in style_rule_categories():
+        print(f"- {category}")
+    custom_terms = load_custom_style_terms(rules_path)
+    print(f"\nCustom trigger terms found: {len(custom_terms)}")
+    print("Tip: edit 设定集/AI句式禁区.md to add project-specific risk terms, exceptions, and preferences.")
+    return 0
+
+
+def cmd_style_check(path: Path, chapter_file: Path) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    result = run_style_check(target, chapter_file)
+    if result is None:
+        return 1
+    write_style_report(target, result)
+    counts = result["counts"]
+    print(f"Style-check: hits={counts['total']} high={counts['high']} medium={counts['medium']} low={counts['low']}")
+    print(f"Report written: {result['report_path']}")
+    print("Note: style-check is read-only and does not modify chapter prose.")
+    return 0
+
+
+def cmd_style_check_range(path: Path, start_chapter: str, end_chapter: str) -> int:
+    target = path.expanduser().resolve()
+    error = validate_novel_root(target)
+    if error:
+        print(f"Error: {error}")
+        return 1
+    start = parse_positive_int(start_chapter, "start_chapter")
+    end = parse_positive_int(end_chapter, "end_chapter")
+    if start is None or end is None:
+        return 1
+    if end < start:
+        print("Error: end_chapter must be greater than or equal to start_chapter")
+        return 1
+
+    results = []
+    total = {"total": 0, "high": 0, "medium": 0, "low": 0}
+    missing = []
+    for number in range(start, end + 1):
+        chapter_path = chapter_file_path(target, number)
+        if not chapter_path.is_file():
+            missing.append(f"第{number:03d}章")
+            print(f"Style-check 第{number:03d}章: missing draft")
+            continue
+        result = run_style_check(target, Path("正文") / chapter_path.name)
+        if result is None:
+            return 1
+        write_style_report(target, result)
+        results.append(result)
+        counts = result["counts"]
+        for key in total:
+            total[key] += counts[key]
+        print(f"Style-check 第{number:03d}章: hits={counts['total']} high={counts['high']} medium={counts['medium']} low={counts['low']}")
+
+    summary_path = write_style_summary(target, start, end, results, total, missing)
+    print(f"Summary written: {summary_path}")
+    print("Note: style-check-range is read-only and does not modify chapter prose.")
+    return 0
+
+
 def cmd_check(path: Path) -> int:
     target = path.expanduser().resolve()
     errors: list[str] = []
@@ -1496,6 +1696,442 @@ def check_novel_project(root: Path, errors: list[str]) -> None:
     for dirname in NOVEL_DIRS:
         if not (root / dirname).is_dir():
             errors.append(f"missing directory: {dirname}")
+
+
+def ensure_style_rules_file(root: Path) -> tuple[Path, bool] | tuple[None, bool]:
+    rules_path = root / "设定集" / "AI句式禁区.md"
+    if rules_path.is_file():
+        return rules_path, False
+    source = TEMPLATE_DIR / "设定集" / "AI句式禁区.md"
+    if not source.is_file():
+        print(f"Error: missing style rules template: {source}")
+        return None, False
+    rules_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, rules_path)
+    return rules_path, True
+
+
+def style_rule_categories() -> list[str]:
+    categories = [str(rule["category"]) for rule in STYLE_RULES]
+    categories.insert(6, "“像是 / 仿佛 / 好像”堆叠")
+    return categories
+
+
+def resolve_chapter_input(root: Path, chapter_file: Path) -> Path | None:
+    if chapter_file.is_absolute():
+        chapter_path = chapter_file.expanduser().resolve()
+    else:
+        chapter_path = (root / chapter_file).resolve()
+    try:
+        chapter_path.relative_to(root)
+    except ValueError:
+        print(f"Error: chapter_file must be inside project path: {chapter_file}")
+        return None
+    if not chapter_path.is_file():
+        print(f"Error: missing chapter file: {chapter_path}")
+        return None
+    return chapter_path
+
+
+def run_style_check(root: Path, chapter_file: Path) -> dict | None:
+    rules_path, _created = ensure_style_rules_file(root)
+    if rules_path is None:
+        return None
+    chapter_path = resolve_chapter_input(root, chapter_file)
+    if chapter_path is None:
+        return None
+    chapter_text = read_text(chapter_path)
+    sentences = split_chapter_sentences(chapter_text)
+    custom_terms = load_custom_style_terms(rules_path)
+    findings = scan_style_findings(sentences, custom_terms)
+    counts = count_style_findings(findings)
+    report_path = root / "审查报告" / f"{chapter_path.stem}-style-report.md"
+    return {
+        "chapter_path": chapter_path,
+        "project_root": root,
+        "chapter_relative": relative_path(root, chapter_path),
+        "chapter_stem": chapter_path.stem,
+        "rules_path": rules_path,
+        "custom_terms": custom_terms,
+        "sentences": sentences,
+        "findings": findings,
+        "counts": counts,
+        "report_path": report_path,
+    }
+
+
+def split_chapter_sentences(text: str) -> list[dict]:
+    sentences = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("|"):
+            continue
+        if stripped.startswith("#"):
+            continue
+        for match in re.finditer(r"[^。！？!?；;\n]+[。！？!?；;]?", stripped):
+            sentence = match.group(0).strip()
+            if not sentence:
+                continue
+            sentences.append({"text": sentence, "line": line_number})
+    return sentences
+
+
+def scan_style_findings(sentences: list[dict], custom_terms: list[str]) -> list[dict]:
+    findings = []
+    for index, sentence in enumerate(sentences):
+        text = sentence["text"]
+        for rule in STYLE_RULES:
+            matched = match_style_patterns(text, rule["patterns"])
+            if matched:
+                findings.append(
+                    {
+                        "sentence": text,
+                        "line": sentence["line"],
+                        "category": rule["category"],
+                        "level": rule["level"],
+                        "matched_terms": matched,
+                        "reason": rule["reason"],
+                        "suggestion": rule["suggestion"],
+                        "rewrite_direction": rule["rewrite_direction"],
+                    }
+                )
+        metaphor_terms = [term for term in METAPHOR_TERMS if term in text]
+        if len(metaphor_terms) >= 2:
+            findings.append(
+                style_finding(
+                    text,
+                    sentence["line"],
+                    "“像是 / 仿佛 / 好像”堆叠",
+                    "low",
+                    metaphor_terms,
+                    "单句中多个比喻引导词叠加，可能让表达变虚。",
+                    "弱化",
+                    "保留最有力的一个比喻，其余改为动作或场景细节。",
+                )
+            )
+        if index >= 2 and all(any(term in item["text"] for term in METAPHOR_TERMS) for item in sentences[index - 2 : index + 1]):
+            findings.append(
+                style_finding(
+                    text,
+                    sentence["line"],
+                    "“像是 / 仿佛 / 好像”堆叠",
+                    "low",
+                    ["连续三句比喻词"],
+                    "连续句子都使用比喻引导词，可能形成机械抒情节奏。",
+                    "弱化",
+                    "减少连续比喻，把其中一两句落到具体动作、对话或物件上。",
+                )
+            )
+        custom_matched = [term for term in custom_terms if term and term in text]
+        if custom_matched:
+            findings.append(
+                style_finding(
+                    text,
+                    sentence["line"],
+                    "项目自定义规则",
+                    "medium",
+                    custom_matched,
+                    "命中用户在 AI 句式禁区中补充的项目偏好或风险词。",
+                    "人工确认",
+                    "结合项目自定义说明判断保留、弱化、改写或删除。",
+                )
+            )
+    return merge_duplicate_style_findings(findings)
+
+
+def style_finding(
+    sentence: str,
+    line: int,
+    category: str,
+    level: str,
+    matched_terms: list[str],
+    reason: str,
+    suggestion: str,
+    rewrite_direction: str,
+) -> dict:
+    return {
+        "sentence": sentence,
+        "line": line,
+        "category": category,
+        "level": level,
+        "matched_terms": matched_terms,
+        "reason": reason,
+        "suggestion": suggestion,
+        "rewrite_direction": rewrite_direction,
+    }
+
+
+def match_style_patterns(text: str, patterns: list[str]) -> list[str]:
+    matched = []
+    for pattern in patterns:
+        if ".+" in pattern or ".*" in pattern:
+            if re.search(pattern, text):
+                matched.append(pattern)
+        elif pattern in text:
+            matched.append(pattern)
+    return matched
+
+
+def merge_duplicate_style_findings(findings: list[dict]) -> list[dict]:
+    merged = []
+    seen = set()
+    for item in findings:
+        key = (item["line"], item["sentence"], item["category"], item["reason"])
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+    return merged
+
+
+def load_custom_style_terms(path: Path) -> list[str]:
+    if not path.is_file():
+        return []
+    terms = []
+    in_custom = False
+    for raw_line in read_text(path).splitlines():
+        line = raw_line.strip()
+        if line.startswith("## 项目自定义记录"):
+            in_custom = True
+            continue
+        if line.startswith("## ") and in_custom:
+            in_custom = False
+        for prefix in ["- 禁用：", "- 禁用:", "- 风险：", "- 风险:", "- 触发词：", "- 触发词:"]:
+            if line.startswith(prefix):
+                value = line[len(prefix) :].strip()
+                terms.extend(split_custom_terms(value))
+        if in_custom and line.startswith("|") and not line.startswith("| ---") and "禁区 / 例外" not in line:
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if len(cells) >= 3:
+                terms.extend(split_custom_terms(cells[2]))
+    return sorted({term for term in terms if len(term) >= 2})
+
+
+def split_custom_terms(value: str) -> list[str]:
+    if not value or value in {"-", "无", "暂无"}:
+        return []
+    if "例外" in value and "禁区" not in value:
+        return []
+    parts = re.split(r"[、,，;/；]+", value)
+    return [part.strip(" `“”\"'") for part in parts if part.strip(" `“”\"'")]
+
+
+def count_style_findings(findings: list[dict]) -> dict[str, int]:
+    counts = {"total": len(findings), "high": 0, "medium": 0, "low": 0}
+    for item in findings:
+        level = item.get("level")
+        if level in counts:
+            counts[level] += 1
+    return counts
+
+
+def write_style_report(root: Path, result: dict) -> None:
+    report_path = result["report_path"]
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    template = read_style_report_template(root)
+    findings = result["findings"]
+    counts = result["counts"]
+    report = template.format(
+        chapter_stem=result["chapter_stem"],
+        chapter_path=result["chapter_relative"],
+        created_at=datetime.now(timezone.utc).isoformat(),
+        summary=build_style_summary(result),
+        hit_stats=build_style_hit_stats(findings, counts),
+        high_risk=format_style_level(findings, "high"),
+        medium_risk=format_style_level(findings, "medium"),
+        low_risk=format_style_level(findings, "low"),
+        frequent_terms=format_style_frequent_terms(findings),
+        priority_revisions=format_style_priority_revisions(findings),
+        keep_suggestions=format_style_keep_suggestions(findings),
+        rewrite_principles=build_style_rewrite_principles(),
+        user_questions=format_style_questions(findings),
+    )
+    report_path.write_text(report, encoding="utf-8")
+
+
+def read_style_report_template(root: Path) -> str:
+    project_template = root / "审查报告" / "style-report-template.md"
+    if project_template.is_file():
+        return read_text(project_template)
+    return read_text(TEMPLATE_DIR / "审查报告" / "style-report-template.md")
+
+
+def build_style_summary(result: dict) -> str:
+    counts = result["counts"]
+    custom_count = len(result["custom_terms"])
+    if counts["total"] == 0:
+        verdict = "未命中内置 AI 句式风险。仍建议人工通读关键段落。"
+    else:
+        verdict = "命中结果为启发式提示，优先人工确认 high 和 medium 项。"
+    return "\n".join(
+        [
+            f"- 命中总数：{counts['total']}",
+            f"- 高风险：{counts['high']}",
+            f"- 中风险：{counts['medium']}",
+            f"- 低风险：{counts['low']}",
+            f"- 项目自定义触发词：{custom_count}",
+            f"- 规则文件：{relative_path(result['project_root'], result['rules_path'])}",
+            f"- 结论：{verdict}",
+        ]
+    )
+
+
+def build_style_hit_stats(findings: list[dict], counts: dict[str, int]) -> str:
+    category_counts = {}
+    for item in findings:
+        category_counts[item["category"]] = category_counts.get(item["category"], 0) + 1
+    lines = [
+        f"- total：{counts['total']}",
+        f"- high：{counts['high']}",
+        f"- medium：{counts['medium']}",
+        f"- low：{counts['low']}",
+        "",
+        "### 按类型统计",
+    ]
+    if not category_counts:
+        lines.append("- 暂无命中。")
+    else:
+        for category, count in sorted(category_counts.items(), key=lambda item: (-item[1], item[0])):
+            lines.append(f"- {category}：{count}")
+    return "\n".join(lines)
+
+
+def format_style_level(findings: list[dict], level: str) -> str:
+    items = [item for item in findings if item["level"] == level]
+    if not items:
+        return "- 暂无。"
+    return "\n\n".join(format_style_finding(item) for item in items)
+
+
+def format_style_finding(item: dict) -> str:
+    terms = "、".join(item.get("matched_terms", [])) or "-"
+    return "\n".join(
+        [
+            f"- 行号：{item['line']}",
+            f"- 命中原句：{item['sentence']}",
+            f"- 问题类型：{item['category']}",
+            f"- 风险等级：{item['level']}",
+            f"- 触发词：{terms}",
+            f"- 为什么像 AI：{item['reason']}",
+            f"- 建议处理：{item['suggestion']}",
+            f"- 改写方向：{item['rewrite_direction']}",
+        ]
+    )
+
+
+def format_style_frequent_terms(findings: list[dict]) -> str:
+    counts = {}
+    for item in findings:
+        for term in item.get("matched_terms", []):
+            counts[term] = counts.get(term, 0) + 1
+    if not counts:
+        return "- 暂无。"
+    return "\n".join(f"- {term}：{count}" for term, count in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))[:20])
+
+
+def format_style_priority_revisions(findings: list[dict]) -> str:
+    items = [item for item in findings if item["level"] in {"high", "medium"}]
+    if not items:
+        return "- 暂无必须优先修改项。低风险项可结合上下文决定是否保留。"
+    lines = []
+    for item in items[:12]:
+        lines.append(f"- [{item['level']}] 行 {item['line']} {item['category']}：{item['rewrite_direction']}")
+    return "\n".join(lines)
+
+
+def format_style_keep_suggestions(findings: list[dict]) -> str:
+    if not findings:
+        return "- 未发现需要处理的风险句式。"
+    low_items = [item for item in findings if item["level"] == "low"]
+    lines = [
+        "- 与人物视角、叙述风格或章节节奏高度一致的句子可以保留。",
+        "- 关键意象、角色口癖、刻意重复的修辞可以保留，但建议避免连续密集出现。",
+    ]
+    for item in low_items[:6]:
+        lines.append(f"- 行 {item['line']} 可先人工确认是否保留：{item['sentence']}")
+    return "\n".join(lines)
+
+
+def build_style_rewrite_principles() -> str:
+    return "\n".join(
+        [
+            "- 用一个动作替代总结。",
+            "- 用一段对话暴露关系变化。",
+            "- 删除升华句，让场景停在动作上。",
+            "- 把心理分析拆成身体反应和选择。",
+            "- 把因果解释藏进人物行为。",
+            "- 保留信息空白，不要替读者下结论。",
+            "- 用具体场景替代抽象名词。",
+        ]
+    )
+
+
+def format_style_questions(findings: list[dict]) -> str:
+    if not findings:
+        return "- 是否仍有用户主观不喜欢、但本轮规则未覆盖的句式？"
+    categories = sorted({item["category"] for item in findings})
+    return "\n".join(
+        [
+            f"- 本章命中的 {', '.join(categories)} 是否属于作者有意使用的风格？",
+            "- 哪些 high 风险句必须保留，哪些可以删除或弱化？",
+            "- 是否需要把本次确认过的新禁区补充到 `设定集/AI句式禁区.md`？",
+        ]
+    )
+
+
+def write_style_summary(root: Path, start: int, end: int, results: list[dict], total: dict[str, int], missing: list[str]) -> Path:
+    output_path = root / "审查报告" / f"style-summary-第{start:03d}-第{end:03d}章.md"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    category_counts = {}
+    report_lines = []
+    priority = []
+    for result in results:
+        counts = result["counts"]
+        report_lines.append(
+            f"- {result['chapter_stem']}：hits={counts['total']} high={counts['high']} medium={counts['medium']} low={counts['low']} | {relative_path(root, result['report_path'])}"
+        )
+        for item in result["findings"]:
+            category_counts[item["category"]] = category_counts.get(item["category"], 0) + 1
+            if item["level"] in {"high", "medium"}:
+                priority.append(f"- {result['chapter_stem']} 行 {item['line']} [{item['level']}] {item['category']}：{item['sentence']}")
+    lines = [
+        f"# 风格与 AI 句式风险汇总：第{start:03d}章-第{end:03d}章",
+        "",
+        f"- 生成时间：{datetime.now(timezone.utc).isoformat()}",
+        "- 说明：style-check-range 只生成报告，不自动修改正文。",
+        "",
+        "## 汇总统计",
+        "",
+        f"- total：{total['total']}",
+        f"- high：{total['high']}",
+        f"- medium：{total['medium']}",
+        f"- low：{total['low']}",
+        f"- missing：{len(missing)}",
+        "",
+        "## 按类型统计",
+        "",
+    ]
+    if category_counts:
+        lines.extend(f"- {category}：{count}" for category, count in sorted(category_counts.items(), key=lambda item: (-item[1], item[0])))
+    else:
+        lines.append("- 暂无命中。")
+    lines.extend(["", "## 分章报告", ""])
+    lines.extend(report_lines or ["- 暂无分章报告。"])
+    if missing:
+        lines.extend(["", "## 缺失章节", ""])
+        lines.extend(f"- {item}" for item in missing)
+    lines.extend(["", "## 建议优先确认", ""])
+    lines.extend(priority[:30] or ["- 暂无 high / medium 风险项。"])
+    lines.extend(["", "## 后续建议", ""])
+    lines.extend(
+        [
+            "- 先人工确认 high 风险项，再处理 medium 项。",
+            "- 低风险项不必机械修改，重点看是否连续密集出现。",
+            "- 修改正文后可重新运行 style-check、review 和 doctor。",
+        ]
+    )
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return output_path
 
 
 def validate_novel_root(root: Path) -> str | None:

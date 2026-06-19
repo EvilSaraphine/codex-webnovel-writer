@@ -266,6 +266,43 @@ python3 scripts/webnovel.py review ../sample-novel-project 1
 
 8. 用户自行决定是否修改正文或更新状态文件。review 只给诊断和建议，不会自动修复。
 
+## 反 AI 句式与风格审查工作流
+
+推荐在章节完成后、deep review 前后配合使用 style-check：
+
+1. 写完章节。
+
+2. 运行 `style-rules` 确认规则文件存在：
+
+```bash
+python3 scripts/webnovel.py style-rules ../sample-novel-project
+```
+
+3. 运行 `style-check`：
+
+```bash
+python3 scripts/webnovel.py style-check ../sample-novel-project 正文/第001章.md
+```
+
+4. 查看 `审查报告/第001章-style-report.md`。
+
+5. 人工决定命中句是否保留、弱化、改写或删除。style-check 只读，不自动修改正文。
+
+6. 再运行 review 和 doctor：
+
+```bash
+python3 scripts/webnovel.py review ../sample-novel-project 1
+python3 scripts/webnovel.py doctor ../sample-novel-project
+```
+
+批量检查章节范围：
+
+```bash
+python3 scripts/webnovel.py style-check-range ../sample-novel-project 1 5
+```
+
+用户可以编辑 `设定集/AI句式禁区.md`，补充项目自定义风险词、禁区和例外。命中结果只是启发式提示，需要结合上下文人工判断。
+
 ## 写作任务书工作流
 
 推荐在正式写正文前生成写作任务书：
