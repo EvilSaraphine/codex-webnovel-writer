@@ -1,6 +1,6 @@
 {
   "name": "codex-webnovel-writer",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Codex-native Skills and templates for planning, writing, reviewing, and querying long-form Chinese web novels.",
   "author": {
     "name": "codex-webnovel-writer maintainers"
@@ -29,4 +29,3 @@
     ]
   }
 }
-
